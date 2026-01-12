@@ -1,0 +1,4 @@
+pywin32
+pyzotero
+requests
+python-dotenv

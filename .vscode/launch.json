@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run zotero_picker_ppt.py",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/zotero_picker_ppt.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false,
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    },
+    {
+      "name": "Debug (threads) – break early",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/zotero_picker_ppt.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "stopOnEntry": true,
+      "justMyCode": false,
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  ]
+}
