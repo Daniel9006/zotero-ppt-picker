@@ -12,6 +12,9 @@ import win32com.client as win32
 from pyzotero import zotero
 import requests
 
+from typing import Optional
+from config.zotero_config import load_zotero_config, ConfigError, ZoteroConfig
+
 # ===================== Konfiguration =====================
 MAX_RESULTS   = 50
 HTTP_TIMEOUT  = 15
@@ -82,15 +85,31 @@ def _debug(msg):
     except Exception:
         pass
 
-def require_env():
-    api_key = os.environ.get("ZOTERO_API_KEY")
-    library_id = os.environ.get("ZOTERO_LIBRARY_ID")
-    library_type = os.environ.get("ZOTERO_LIBRARY_TYPE", "user")
-    if not api_key or not library_id:
-        _debug("ENV fehlt: ZOTERO_API_KEY oder ZOTERO_LIBRARY_ID")
-        raise RuntimeError("ZOTERO_API_KEY und ZOTERO_LIBRARY_ID müssen gesetzt sein.")
-    _debug(f"ENV ok: library_type={library_type}, library_id={library_id}")
-    return api_key, library_id, library_type
+_CFG: Optional[ZoteroConfig] = None
+
+def reset_cfg_cache():
+    """Erlaubt später ein 'Config neu laden' ohne Prozess-Neustart."""
+    global _CFG
+    _CFG = None
+
+def get_cfg(*, allow_prompt: bool, parent: Optional[tk.Misc] = None) -> ZoteroConfig:
+    """
+    Single source of truth for Zotero credentials.
+    - Loads persisted config.json first
+    - ENV overrides
+    - Prompts only if allow_prompt=True and missing/invalid
+    """
+    global _CFG
+    if _CFG is not None:
+        return _CFG
+
+    try:
+        _CFG = load_zotero_config(allow_prompt=allow_prompt, parent=parent)
+        _debug(f"Zotero config loaded: type={_CFG.library_type}, id={_CFG.library_id}")
+        return _CFG
+    except ConfigError as e:
+        # raise RuntimeError so existing messagebox handling stays consistent
+        raise RuntimeError(str(e)) from e
 
 
 # ===================== PowerPoint Helpers =================
@@ -1119,7 +1138,7 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
 
 
 # =========== IEEE: Platzhalter & Renummerierung ==========
-PH_RE = re.compile(r"⟦zp:([A-Z0-9]+)⟧")
+PH_RE = re.compile(r"⟦zp:([A-Za-z0-9]+)⟧")
 
 def scan_all_placeholders():
     pres = _get_presentation()
@@ -1162,12 +1181,18 @@ def resync_bibliography_keys_from_document(state=None):
 
     return keys
 
-def insert_ieee_placeholder(key):
+def insert_ieee_placeholder(key, *, parent=None) -> bool:
     ppt_insert_text_at_cursor(f" ⟦zp:{key}⟧")
-    renumber_ieee_and_update()
+    return renumber_ieee_and_update(parent=parent)
 
-def renumber_ieee_and_update():
-    api_key, lib_id, lib_type = require_env()
+def renumber_ieee_and_update(*, parent=None) -> bool:
+    try:
+        cfg = get_cfg(allow_prompt=False, parent=parent)
+    except RuntimeError:
+        if parent is not None:
+            show_missing_zotero_config(parent)
+        return False
+    
     state = load_doc_state()
     style = state.get("style") or DEFAULT_STYLE
 
@@ -1194,7 +1219,13 @@ def renumber_ieee_and_update():
     save_doc_state(state)
 
     if has_bibliography_anchor():
-        update_bibliography(state["bib_keys"], style, api_key, lib_id, lib_type, numbering=numbering)
+        update_bibliography(
+            state["bib_keys"], style,
+            cfg.api_key, cfg.library_id, cfg.library_type,
+            numbering=numbering
+        )
+
+    return True
 # =========================================================
 
 
@@ -1215,6 +1246,16 @@ def run_in_thread(fn, *, on_error=None):
                 _debug(f"Thread error: {e}")
     threading.Thread(target=_wrap, daemon=True).start()
 
+def show_missing_zotero_config(parent):
+    messagebox.showerror(
+        "Zotero not configured",
+        "Zotero credentials are not configured yet.\n\n"
+        "Please open the Zotero Picker, enter your Zotero API key and "
+        "Library ID, and save them.\n\n"
+        "Then try again.",
+        parent=parent
+    )
+
 class PickerApp:
     def __init__(self, root):
         self.root = root
@@ -1223,13 +1264,17 @@ class PickerApp:
         # Optional: Mindestgröße, damit UI nicht "gequetscht" wirkt
         self.root.minsize(420, 300)
 
-        self.api_key, self.library_id, self.library_type = require_env()
-        self.z = zotero.Zotero(self.library_id, self.library_type, self.api_key)
+        self.cfg = None
+        self.z = None
 
-        self.state = load_doc_state()
-        self.state.setdefault("style", DEFAULT_STYLE)
-        self.state.setdefault("bib_keys", [])
-        save_doc_state(self.state)
+        try:
+            self.state = load_doc_state()
+            self.state.setdefault("style", DEFAULT_STYLE)
+            self.state.setdefault("bib_keys", [])
+            save_doc_state(self.state)
+        except Exception as e:
+            self.state = {"style": DEFAULT_STYLE, "bib_keys": []}
+            self._ppt_startup_error = str(e)   # merken für später
 
         self.results = []
 
@@ -1352,6 +1397,12 @@ class PickerApp:
 
         self.set_status("Bereit.")
 
+        if getattr(self, "_ppt_startup_error", None):
+            self.set_status(f"PowerPoint nicht bereit: {self._ppt_startup_error}")
+
+        # Config erst nach GUI-Start prüfen (nie blockierend im __init__)
+        self.root.after(0, self._ensure_cfg_ready)
+
         self.root.lift()
         self.root.attributes("-topmost", True)
         self.root.after(300, lambda: self.root.attributes("-topmost", False))
@@ -1367,12 +1418,47 @@ class PickerApp:
         else:
             self.status.config(text=base)
 
+    def _ensure_cfg_ready(self):
+        # 1) zuerst ohne Prompt probieren (nicht blockierend)
+        try:
+            self.cfg = get_cfg(allow_prompt=False, parent=self.root)
+            self.z = zotero.Zotero(
+                self.cfg.library_id,
+                self.cfg.library_type,
+                self.cfg.api_key,
+            )
+            self.set_status("Bereit.")
+            return
+        except RuntimeError:
+            pass
+
+        # 2) jetzt ist die GUI lebendig → Prompt darf modal sein
+        try:
+            self.cfg = get_cfg(allow_prompt=True, parent=self.root)
+            self.z = zotero.Zotero(
+                self.cfg.library_id,
+                self.cfg.library_type,
+                self.cfg.api_key,
+            )
+            self.set_status("Zotero konfiguriert.")
+        except RuntimeError as e:
+            messagebox.showerror(
+                "Zotero Config",
+                str(e),
+                parent=self.root,
+            )
+            self.root.destroy()
+
     def on_style_change(self, event=None):
         self.state["style"] = label_to_code(self.style_var.get())
         save_doc_state(self.state)
         self.set_status(f"Stil gesetzt: {self.style_var.get()} ({self.state['style']})")
 
     def on_key(self, event=None):
+        if self.z is None:
+            self.set_status("Bitte Zotero konfigurieren…")
+            return
+        
         # Debounce: nicht bei jedem Key sofort suchen
         q = self.query_var.get().strip()
         if self._search_after_id is not None:
@@ -1396,7 +1482,7 @@ class PickerApp:
             items = self.z.items(q=q, limit=MAX_RESULTS)
             self.update_results(items, token=token, q=q)
         except Exception as e:
-            self.set_status(f"Suche fehlgeschlagen: {e}")
+            self.root.after(0, lambda: self.set_status(f"Suche fehlgeschlagen: {e}"))
 
     def update_results(self, items, token=None, q=None):
         # NUR Dicts behalten
@@ -1464,8 +1550,11 @@ class PickerApp:
         try:
             # 1) Sonderfall IEEE (Platzhalter + Renummerierung)
             if style == "ieee":
-                insert_ieee_placeholder(key)
-                self.set_status("IEEE-Zitation eingefügt und neu nummeriert.")
+                ok = insert_ieee_placeholder(key, parent=self.root)
+                if ok:
+                    self.set_status("IEEE citation inserted and renumbered.")
+                else:
+                    self.set_status("IEEE placeholder inserted. Configure Zotero to renumber & update bibliography.")
                 return
 
             # 2) Ziel in PowerPoint bestimmen
@@ -1521,13 +1610,17 @@ class PickerApp:
 
             # 8) Auto-Update der Bibliographie, falls ein Anker existiert
             if has_bibliography_anchor():
-                api_key, lib_id, lib_type = require_env()
+                try:
+                    cfg = get_cfg(allow_prompt=False)
+                except RuntimeError:
+                    show_missing_zotero_config(self.root)
+                    return
                 update_bibliography(
                     self.state.get("bib_keys", []),
                     style,
-                    api_key,
-                    lib_id,
-                    lib_type
+                    cfg.api_key,
+                    cfg.library_id,
+                    cfg.library_type
                 )
                 _debug("Auto bibliography update triggered")
                 self.set_status(f"Eingefügt: {cite} (Bibliographie aktualisiert)")
@@ -1585,13 +1678,20 @@ class PickerApp:
                 anchor_count = len(_resolve_anchor_list())
 
                 if self.state.get("bib_keys"):
-                    api_key, lib_id, lib_type = require_env()
+                    try:
+                        cfg = get_cfg(allow_prompt=False)
+                    except RuntimeError:
+                        show_missing_zotero_config(self.root)
+                        return
                     style = self.state.get("style", DEFAULT_STYLE)
                     
                     def _do_bib_update():
                         update_bibliography(
                             self.state.get("bib_keys", []),
-                            style, api_key, lib_id, lib_type
+                            style,
+                            cfg.api_key,
+                            cfg.library_id,
+                            cfg.library_type
                         )
                         # Status-Update zurück in den UI-Thread
                         self.root.after(
@@ -1687,14 +1787,18 @@ class PickerApp:
             )
             return
 
-        api_key, lib_id, lib_type = require_env()
+        try:
+            cfg = get_cfg(allow_prompt=False)
+        except RuntimeError:
+            show_missing_zotero_config(self.root)
+            return
         style = self.state.get("style", DEFAULT_STYLE)
 
         # UI sofort: "läuft..."
         self.set_status("Bibliographie wird aktualisiert...")
 
         def _do_bib_update():
-            update_bibliography(keys, style, api_key, lib_id, lib_type)
+            update_bibliography(keys, style, cfg.api_key, cfg.library_id, cfg.library_type)
             self.root.after(
                 0,
                 lambda: self.set_status(f"Bibliographie aktualisiert ({style}).")
@@ -1736,13 +1840,17 @@ class PickerApp:
             return
 
         # 5) Bibliographie asynchron aktualisieren
-        api_key, lib_id, lib_type = require_env()
+        try:
+            cfg = get_cfg(allow_prompt=False)
+        except RuntimeError:
+            show_missing_zotero_config(self.root)
+            return                  
 
         # UI sofort informieren
         self.set_status(base_status + " (Bibliographie wird aktualisiert...)")
 
         def _do_bib_update():
-            update_bibliography(new_keys, style, api_key, lib_id, lib_type)
+            update_bibliography(new_keys, style, cfg.api_key, cfg.library_id, cfg.library_type)
             self.root.after(
                 0,
                 lambda: self.set_status(base_status)
@@ -1757,6 +1865,11 @@ class PickerApp:
             
 def main():
     root = tk.Tk()
+
+    # Load config early in the UI thread.
+    # If config exists (config.json / env), no dialog appears.
+    # get_cfg(allow_prompt=True, parent=root)
+
     PickerApp(root)
     root.mainloop()
 

@@ -7,6 +7,10 @@ __pycache__/
 
 # Environment / secrets
 .env
+*.env
+
+# Local credential / API key files (never commit)
+Zotero PPT API Key.txt
 
 # OS files
 .DS_Store
