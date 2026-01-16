@@ -125,6 +125,40 @@ transparent and harder to manage across multiple users.
 
 ## Troubleshooting
 
+### win32com / pywin32 not found (Windows)
+
+If you see errors like:
+
+- `NameError: name 'win32' is not defined`
+- `ModuleNotFoundError: No module named 'win32com'`
+
+the script is being executed with a Python interpreter where required
+dependencies are not installed.
+
+`win32com` is provided by **pywin32** and is **not part of standard Python**.
+
+#### Fix
+
+Make sure all dependencies are installed for the Python interpreter
+used to start the script:
+
+```powershell
+# From the project directory
+python -m pip install -U pip
+python -m pip install -r requirements.txt
+Verify installation
+powershell
+Code kopieren
+python -c "import win32com.client as win32; print('win32com OK')"
+python -c "import pyzotero; print('pyzotero OK')"
+Check which Python interpreter is used
+powershell
+Code kopieren
+python -c "import sys; print(sys.executable)"
+If this points to a system Python (for example Python314) instead of a
+virtual environment, ensure dependencies are installed for that interpreter
+or activate the correct virtual environment before running the script.
+
 ### No configuration dialog appears
 This usually means valid credentials were already found.
 
