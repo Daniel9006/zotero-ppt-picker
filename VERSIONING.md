@@ -9,6 +9,8 @@ This repository uses a pragmatic, small-team-friendly versioning approach:
 
 **Tags are the source of truth.**
 
+Current public baseline: `v0.1.0-alpha.2`
+
 ---
 
 ## Tag format
@@ -17,7 +19,7 @@ We use SemVer-style tags:
 
 - Stable: `vMAJOR.MINOR.PATCH` (e.g. `v0.2.0`)
 - Pre-release: `vMAJOR.MINOR.PATCH-alpha.N`, `...-beta.N`, `...-rc.N`
-  - Example: `v0.1.0-alpha.1`
+  - Example: `v0.1.0-alpha.2`
 
 Rules of thumb:
 - **MINOR** = big step (new citation style, new platform support, major refactor)
@@ -62,12 +64,12 @@ Notes:
 
 #### Hotfix patch releases (run blockers)
 If the project becomes non-runnable due to a packaging, environment, or import issue,
-ship a **PATCH** release immediately (e.g. `v0.1.0-alpha.2`).
+ship a **PATCH** release immediately (e.g. `v0.1.0-alpha.3`).
 
-Examples:
+Typical examples:
 - Missing dependency (`pywin32`)
-- Wrong Python interpreter / environment
-- Import-time failures
+- Wrong Python interpreter / virtual environment not activated
+- Import-time failures caused by missing packages
 
 No feature work is bundled into such hotfixes.
 
@@ -168,3 +170,7 @@ This section documents verified fixes that affected runtime behavior.
 - Script starts correctly
 - PowerPoint COM automation is available
 - Expected behavior when no presentation is open
+
+**Related tags**
+- Documentation added in `v0.1.0-alpha.1`
+- Versioning and coding standards baseline in `v0.1.0-alpha.2`
