@@ -15,6 +15,12 @@ import requests
 from typing import Optional
 from config.zotero_config import load_zotero_config, ConfigError, ZoteroConfig
 
+import contextlib
+import logging
+import traceback
+
+import pythoncom  # pywin32
+
 # ===================== Konfiguration =====================
 MAX_RESULTS   = 50
 HTTP_TIMEOUT  = 15
@@ -40,6 +46,31 @@ TAG_BIB_GUID_KEY = "ZP_BIB_GUID"
 CITE_TAG = "ZP_CITES"
 # =========================================================
 
+# ===================== COM Stabilisierung (Option A+) =====================
+COM_LOCK = threading.RLock()
+
+LOG = logging.getLogger("zotero_ppt")
+
+@contextlib.contextmanager
+def com_context(action: str = ""):
+    """
+    Option A+:
+    - CoInitialize/CoUninitialize pro Worker-Thread
+    - serialisiert alle COM-Zugriffe via COM_LOCK (RLock erlaubt nested calls)
+    """
+    pythoncom.CoInitialize()
+    try:
+        with COM_LOCK:
+            if action:
+                LOG.debug("COM enter: %s", action)
+            yield
+    finally:
+        try:
+            if action:
+                LOG.debug("COM exit: %s", action)
+        finally:
+            pythoncom.CoUninitialize()
+# ========================================================================
 
 # ======== Zero-width Marker für Nicht-IEEE-Zitate ========
 ZWM_START = "\u2062"
@@ -115,121 +146,125 @@ def get_cfg(*, allow_prompt: bool, parent: Optional[tk.Misc] = None) -> ZoteroCo
 # ===================== PowerPoint Helpers =================
 
 def _get_presentation():
-    app = win32.gencache.EnsureDispatch("PowerPoint.Application")
-    pres = app.ActivePresentation
-    if not pres:
-        raise RuntimeError("Keine aktive Präsentation.")
-    return pres
+    with com_context("_activate_powerpoint"):
+        app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+        pres = app.ActivePresentation
+        if not pres:
+            raise RuntimeError("Keine aktive Präsentation.")
+        return pres
     
 def _activate_powerpoint():
-    try:
-        app = win32.gencache.EnsureDispatch("PowerPoint.Application")
-        app.Activate()
-        if app.ActiveWindow is not None:
-            app.ActiveWindow.Activate()
-    except Exception:
-        pass
+    with com_context("_activate_powerpoint"):
+        try:
+            app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+            app.Activate()
+            if app.ActiveWindow is not None:
+                app.ActiveWindow.Activate()
+        except Exception:
+            pass
 
 def _get_current_slide_and_shape():
-    app = win32.gencache.EnsureDispatch("PowerPoint.Application")
-    win = app.ActiveWindow
-    if not win:
-        return None, None
+    with com_context("_activate_powerpoint"):
+        app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+        win = app.ActiveWindow
+        if not win:
+            return None, None
 
-    sel = win.Selection
-    slide = None
-    shape = None
+        sel = win.Selection
+        slide = None
+        shape = None
 
-    try:
-        slide = sel.SlideRange(1)
-    except Exception:
         try:
-            slide = win.View.Slide
+            slide = sel.SlideRange(1)
         except Exception:
-            slide = None
+            try:
+                slide = win.View.Slide
+            except Exception:
+                slide = None
 
-    ppSelectionSlides = 1
-    ppSelectionShapes = 2
-    ppSelectionText   = 3
-    try:
-        sel_type = sel.Type
-    except Exception:
-        sel_type = None
-
-    if sel_type == ppSelectionText:
+        ppSelectionSlides = 1
+        ppSelectionShapes = 2
+        ppSelectionText   = 3
         try:
-            tr = sel.TextRange
-            if tr is not None:
-                shape = tr.Parent
-                if shape is not None and getattr(shape, "HasTextFrame", False):
-                    return slide, shape
+            sel_type = sel.Type
         except Exception:
-            pass
-        try:
-            sr = sel.ShapeRange
-            if sr is not None and sr.Count >= 1:
-                shape = sr.Item(1)
-                if shape is not None and getattr(shape, "HasTextFrame", False):
-                    return slide, shape
-        except Exception:
-            pass
+            sel_type = None
 
-    if sel_type == ppSelectionShapes:
-        try:
-            sr = sel.ShapeRange
-            if sr is not None and sr.Count >= 1:
-                shape = sr.Item(1)
-                if shape is not None and getattr(shape, "HasTextFrame", False):
-                    return slide, shape
-        except Exception:
-            pass
+        if sel_type == ppSelectionText:
+            try:
+                tr = sel.TextRange
+                if tr is not None:
+                    shape = tr.Parent
+                    if shape is not None and getattr(shape, "HasTextFrame", False):
+                        return slide, shape
+            except Exception:
+                pass
+            try:
+                sr = sel.ShapeRange
+                if sr is not None and sr.Count >= 1:
+                    shape = sr.Item(1)
+                    if shape is not None and getattr(shape, "HasTextFrame", False):
+                        return slide, shape
+            except Exception:
+                pass
 
-    if sel_type == ppSelectionSlides or shape is None:
-        try:
-            if slide is not None:
-                best, best_area = None, -1
-                for shp in slide.Shapes:
-                    try:
-                        if getattr(shp, "HasTextFrame", False):
-                            _ = shp.TextFrame  # nur um sicherzugehen, dass der Zugriff nicht crasht
-                            area = float(shp.Width) * float(shp.Height)
-                            if area > best_area:
-                                best, best_area = shp, area
-                    except Exception:
-                        continue
-                if best is not None:
-                    return slide, best
-        except Exception:
-            pass
+        if sel_type == ppSelectionShapes:
+            try:
+                sr = sel.ShapeRange
+                if sr is not None and sr.Count >= 1:
+                    shape = sr.Item(1)
+                    if shape is not None and getattr(shape, "HasTextFrame", False):
+                        return slide, shape
+            except Exception:
+                pass
 
-    return slide, None
+        if sel_type == ppSelectionSlides or shape is None:
+            try:
+                if slide is not None:
+                    best, best_area = None, -1
+                    for shp in slide.Shapes:
+                        try:
+                            if getattr(shp, "HasTextFrame", False):
+                                _ = shp.TextFrame  # nur um sicherzugehen, dass der Zugriff nicht crasht
+                                area = float(shp.Width) * float(shp.Height)
+                                if area > best_area:
+                                    best, best_area = shp, area
+                        except Exception:
+                            continue
+                    if best is not None:
+                        return slide, best
+            except Exception:
+                pass
+
+        return slide, None
 
 def ppt_insert_text_at_cursor(s):
     """
     Fügt Text ausschließlich an der echten Cursorposition ein.
     Kein Fallback auf Shape-Auswahl → sonst ungewolltes Anhängen.
     """
-    app = win32.gencache.EnsureDispatch("PowerPoint.Application")
-    win = app.ActiveWindow
-    if not win:
-        raise RuntimeError("Kein PowerPoint-Fenster aktiv.")
+    with com_context("_activate_powerpoint"):
+        app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+        win = app.ActiveWindow
+        if not win:
+            raise RuntimeError("Kein PowerPoint-Fenster aktiv.")
 
-    sel = win.Selection
+        sel = win.Selection
 
-    # EINZIG erlaubter Fall: echter Textcursor
-    try:
-        tr = sel.TextRange
-        if tr is not None:
-            tr.InsertAfter(s)
-            return
-    except Exception:
-        pass
+        # EINZIG erlaubter Fall: echter Textcursor
+        try:
+            tr = sel.TextRange
+            if tr is not None:
+                tr.InsertAfter(s)
+                return
+        except Exception:
+            pass
 
-    # alles andere ist NOK
-    raise RuntimeError(
-        "Kein Textcursor gefunden.\n"
-        "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
-    )
+        # alles andere ist NOK
+        raise RuntimeError(
+            "Kein Textcursor gefunden.\n"
+            "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
+        )
     
 def _copy_font(src_font, dst_font):
     """Kopiert möglichst viele Font-Eigenschaften robust."""
