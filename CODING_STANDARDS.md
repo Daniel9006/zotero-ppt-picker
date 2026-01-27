@@ -117,7 +117,26 @@ Minimum requirement before adding the next style:
 
 ---
 
-## 8) Practical enforcement
+## 8) Phase-aware quality requirements
+
+Certain coding quality rules map to versioning maturity levels:
+
+- **Alpha phases (`v0.x.0-alpha.N`):**
+  - English comments and docstrings
+  - Basic error handling with specific exceptions
+  - Avoid obvious duplication (especially in citation style logic)
+  - Config logic in one clearly named module
+
+- **Beta phases (`v0.x.0-beta.N`):**
+  - Deduplicated style engine used by all styles
+  - Constructor/factory pattern for config with validation
+  - Deterministic COM boundaries
+  - Tests covering config and style engine
+
+These requirements align with the gates defined in `VERSIONING.md`.
+
+
+## 9) Practical enforcement
 
 Starting at `v0.1.0-beta.1`:
 - PR/review (even informal) checks for:

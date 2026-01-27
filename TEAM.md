@@ -26,6 +26,23 @@ Ziel:
 
 ---
 
+## Refactor governance
+
+Major refactors (architecture, core logic, shared engines) follow these rules:
+
+- Refactors should be proposed and discussed before major effort.
+- Use a feature branch (e.g. `feature/style-engine`, `refactor/config-factory`).
+- Refactors should not mix with urgent bug fixes on the same branch.
+- Do not merge an incomplete refactor into `main`; ensure:
+  - tests pass
+  - exceptions and error flows are deterministic
+  - no regression in stable flows
+
+**Stabilization vs Refactor**
+- Bugfix stabilization → `fix/*` branches, merges into `main`
+- Architectural refactor → `feature/*` or `refactor/*` branches
+- Refactors belong to phase gates in `VERSIONING.md`
+
 ## Commit-Regeln
 
 - Klein & logisch zusammenhängend committen

@@ -113,6 +113,26 @@ Gate:
 
 ---
 
+#### Refactor milestones (within versioning phases)
+
+Refactors that improve architecture, reduce duplication, and prepare
+for future features are gated by versioning phases. They do *not*
+introduce new citation styles or platform support, but they raise quality
+and maintainability.
+
+- **Before Phase 1 complete:** style duplication and config structure
+  may be inconsistent; planned refactors are allowed in feature branches.
+- **Phase 1 gate (architecture refactor):**
+  - Shared citation style engine introduced
+  - `zotero_config.py` refactored into constructor/factory with validation
+  - Deduplicated logic across citation styles
+- Once Phase 1 goals are met, new styles (IEEE/Chicago/Harvard) may be
+  introduced (Phase 2) following alpha→beta→rc→stable cycles.
+
+These architecture refactors may span multiple pre-releases
+(e.g. `v0.1.1-alpha`, `v0.1.2-beta`) and do not require delaying
+smaller bugfix patches in Phase 0.
+
 ### Phase 2 — New citation styles (each is a MINOR bump)
 
 Each style is treated as a major milestone.
