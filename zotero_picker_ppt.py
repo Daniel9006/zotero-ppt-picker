@@ -146,12 +146,11 @@ def get_cfg(*, allow_prompt: bool, parent: Optional[tk.Misc] = None) -> ZoteroCo
 # ===================== PowerPoint Helpers =================
 
 def _get_presentation():
-    with com_context("_activate_powerpoint"):
-        app = win32.gencache.EnsureDispatch("PowerPoint.Application")
-        pres = app.ActivePresentation
-        if not pres:
-            raise RuntimeError("Keine aktive Präsentation.")
-        return pres
+    app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+    pres = app.ActivePresentation
+    if not pres:
+        raise RuntimeError("Keine aktive Präsentation.")
+    return pres
     
 def _activate_powerpoint():
     with com_context("_activate_powerpoint"):
@@ -164,79 +163,78 @@ def _activate_powerpoint():
             pass
 
 def _get_current_slide_and_shape():
-    with com_context("_activate_powerpoint"):
-        app = win32.gencache.EnsureDispatch("PowerPoint.Application")
-        win = app.ActiveWindow
-        if not win:
-            return None, None
+    app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+    win = app.ActiveWindow
+    if not win:
+        return None, None
 
-        sel = win.Selection
-        slide = None
-        shape = None
+    sel = win.Selection
+    slide = None
+    shape = None
 
+    try:
+        slide = sel.SlideRange(1)
+    except Exception:
         try:
-            slide = sel.SlideRange(1)
+            slide = win.View.Slide
         except Exception:
-            try:
-                slide = win.View.Slide
-            except Exception:
-                slide = None
+            slide = None
 
-        ppSelectionSlides = 1
-        ppSelectionShapes = 2
-        ppSelectionText   = 3
+    ppSelectionSlides = 1
+    ppSelectionShapes = 2
+    ppSelectionText   = 3
+    try:
+        sel_type = sel.Type
+    except Exception:
+        sel_type = None
+
+    if sel_type == ppSelectionText:
         try:
-            sel_type = sel.Type
+            tr = sel.TextRange
+            if tr is not None:
+                shape = tr.Parent
+                if shape is not None and getattr(shape, "HasTextFrame", False):
+                    return slide, shape
         except Exception:
-            sel_type = None
+            pass
+        try:
+            sr = sel.ShapeRange
+            if sr is not None and sr.Count >= 1:
+                shape = sr.Item(1)
+                if shape is not None and getattr(shape, "HasTextFrame", False):
+                    return slide, shape
+        except Exception:
+            pass
 
-        if sel_type == ppSelectionText:
-            try:
-                tr = sel.TextRange
-                if tr is not None:
-                    shape = tr.Parent
-                    if shape is not None and getattr(shape, "HasTextFrame", False):
-                        return slide, shape
-            except Exception:
-                pass
-            try:
-                sr = sel.ShapeRange
-                if sr is not None and sr.Count >= 1:
-                    shape = sr.Item(1)
-                    if shape is not None and getattr(shape, "HasTextFrame", False):
-                        return slide, shape
-            except Exception:
-                pass
+    if sel_type == ppSelectionShapes:
+        try:
+            sr = sel.ShapeRange
+            if sr is not None and sr.Count >= 1:
+                shape = sr.Item(1)
+                if shape is not None and getattr(shape, "HasTextFrame", False):
+                    return slide, shape
+        except Exception:
+            pass
 
-        if sel_type == ppSelectionShapes:
-            try:
-                sr = sel.ShapeRange
-                if sr is not None and sr.Count >= 1:
-                    shape = sr.Item(1)
-                    if shape is not None and getattr(shape, "HasTextFrame", False):
-                        return slide, shape
-            except Exception:
-                pass
+    if sel_type == ppSelectionSlides or shape is None:
+        try:
+            if slide is not None:
+                best, best_area = None, -1
+                for shp in slide.Shapes:
+                    try:
+                        if getattr(shp, "HasTextFrame", False):
+                            _ = shp.TextFrame  # nur um sicherzugehen, dass der Zugriff nicht crasht
+                            area = float(shp.Width) * float(shp.Height)
+                            if area > best_area:
+                                best, best_area = shp, area
+                    except Exception:
+                        continue
+                if best is not None:
+                    return slide, best
+        except Exception:
+            pass
 
-        if sel_type == ppSelectionSlides or shape is None:
-            try:
-                if slide is not None:
-                    best, best_area = None, -1
-                    for shp in slide.Shapes:
-                        try:
-                            if getattr(shp, "HasTextFrame", False):
-                                _ = shp.TextFrame  # nur um sicherzugehen, dass der Zugriff nicht crasht
-                                area = float(shp.Width) * float(shp.Height)
-                                if area > best_area:
-                                    best, best_area = shp, area
-                        except Exception:
-                            continue
-                    if best is not None:
-                        return slide, best
-            except Exception:
-                pass
-
-        return slide, None
+    return slide, None
 
 def ppt_insert_text_at_cursor(s):
     """
@@ -369,19 +367,20 @@ def _make_sig(item):
     return f"{author}|{year}"
     
 def collect_all_cites_by_key():
-    pres = _get_presentation()
-    by_key = {}
-    for slide in pres.Slides:
-        for shp in slide.Shapes:
-            try:
-                if getattr(shp, "HasTextFrame", False):
-                    for c in prune_cites_in_shape(shp):
-                        k = c.get("key")
-                        if k and k not in by_key:
-                            by_key[k] = c
-            except Exception:
-                continue
-    return by_key
+    with com_context("collect_all_cites_by_key"):
+        pres = _get_presentation()
+        by_key = {}
+        for slide in pres.Slides:
+            for shp in slide.Shapes:
+                try:
+                    if getattr(shp, "HasTextFrame", False):
+                        for c in prune_cites_in_shape(shp):
+                            k = c.get("key")
+                            if k and k not in by_key:
+                                by_key[k] = c
+                except Exception:
+                    continue
+        return by_key
     
 def _replace_all(text, old, new):
     if not old or old == new:
@@ -398,117 +397,119 @@ def normalize_sig_group(sig):
     - sichtbaren Text in allen Shapes
     - gespeicherte Cite-Tags
     """
-    pres = _get_presentation()
+    with com_context(f"normalize_sig_group sig={sig}"):
+        pres = _get_presentation()
 
-    # 1) alle Vorkommen dieser sig einsammeln (über Tags)
-    occ = []  # (slide, shp, idx, key, old_cite)
-    for slide in pres.Slides:
-        for shp in slide.Shapes:
-            try:
-                if not getattr(shp, "HasTextFrame", False):
+        # 1) alle Vorkommen dieser sig einsammeln (über Tags)
+        occ = []  # (slide, shp, idx, key, old_cite)
+        for slide in pres.Slides:
+            for shp in slide.Shapes:
+                try:
+                    if not getattr(shp, "HasTextFrame", False):
+                        continue
+                    arr = prune_cites_in_shape(shp)
+                    for i, c in enumerate(arr):
+                        if c.get("sig") == sig:
+                            k = c.get("key")
+                            oc = c.get("cite") or ""
+                            if k and oc:
+                                occ.append((slide, shp, i, k, oc))
+                except Exception:
                     continue
-                arr = prune_cites_in_shape(shp)
-                for i, c in enumerate(arr):
-                    if c.get("sig") == sig:
-                        k = c.get("key")
-                        oc = c.get("cite") or ""
-                        if k and oc:
-                            occ.append((slide, shp, i, k, oc))
+
+        if not occ:
+            return
+
+        # stabile Reihenfolge: erster Fund im Dokument
+        keys_in_order = []
+        for _, _, _, k, _ in occ:
+            if k not in keys_in_order:
+                keys_in_order.append(k)
+
+        def strip_suffix(cite: str) -> str:
+            # (Autor, 2020a) -> (Autor, 2020)
+            # (Autor, n.d.a) -> (Autor, n.d.)
+            return re.sub(r"((?:\d{4})|n\.d\.)[a-z]\)$", r"\1)", cite)
+
+        # pro key eine "Basis" (ohne Suffix) merken
+        base_by_key = {}
+        for _, _, _, k, oc in occ:
+            if k not in base_by_key:
+                base_by_key[k] = strip_suffix(oc)
+
+        # 2) Zieltexte pro Key bestimmen
+        letters = "abcdefghijklmnopqrstuvwxyz"
+        new_by_key = {}
+
+        if len(keys_in_order) == 1:
+            # ROLLBACK-FALL: a/b entfernen
+            k = keys_in_order[0]
+            new_by_key[k] = base_by_key.get(k) or strip_suffix(occ[0][4])
+        else:
+            # a/b/... vergeben
+            for idx, k in enumerate(keys_in_order):
+                base = base_by_key.get(k) or "(o. A.)"
+                new_by_key[k] = base[:-1] + letters[idx] + ")"
+
+        # 3) pro Shape sequenziell ersetzen (ohne Shape als Dict-Key!)
+        by_shape = {}  # (slide_id, shape_id) -> {"shape": shp, "items":[(idx,key,old_cite),...]}
+        for slide, shp, i, k, old_cite in occ:
+            try:
+                slide_id = int(slide.SlideID)
+                shape_id = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
             except Exception:
                 continue
+            key = (slide_id, shape_id)
+            by_shape.setdefault(key, {"shape": shp, "items": []})["items"].append((i, k, old_cite))
 
-    if not occ:
-        return
+        for _, pack in by_shape.items():
+            shp = pack["shape"]
+            items = pack["items"]
+            try:
+                tr = shp.TextFrame.TextRange
+                txt = tr.Text or ""
+                arr = _load_shape_cites(shp)
 
-    # stabile Reihenfolge: erster Fund im Dokument
-    keys_in_order = []
-    for _, _, _, k, _ in occ:
-        if k not in keys_in_order:
-            keys_in_order.append(k)
+                changed = False
+                for i, k, old_cite in sorted(items, key=lambda x: x[0]):
+                    new_cite = new_by_key.get(k, old_cite)
+                    if new_cite == old_cite:
+                        continue
 
-    def strip_suffix(cite: str) -> str:
-        # (Autor, 2020a) -> (Autor, 2020)
-        # (Autor, n.d.a) -> (Autor, n.d.)
-        return re.sub(r"((?:\d{4})|n\.d\.)[a-z]\)$", r"\1)", cite)
+                    txt, replaced = _replace_first(txt, old_cite, new_cite)
+                    if replaced:
+                        changed = True
 
-    # pro key eine "Basis" (ohne Suffix) merken
-    base_by_key = {}
-    for _, _, _, k, oc in occ:
-        if k not in base_by_key:
-            base_by_key[k] = strip_suffix(oc)
+                    # Tag updaten (Index passt zur Tag-Liste, solange prune vorher lief)
+                    if i < len(arr) and arr[i].get("key") == k:
+                        arr[i]["cite"] = new_cite
 
-    # 2) Zieltexte pro Key bestimmen
-    letters = "abcdefghijklmnopqrstuvwxyz"
-    new_by_key = {}
+                if changed:
+                    tr.Text = txt
+                    _save_shape_cites(shp, arr)
 
-    if len(keys_in_order) == 1:
-        # ROLLBACK-FALL: a/b entfernen
-        k = keys_in_order[0]
-        new_by_key[k] = base_by_key.get(k) or strip_suffix(occ[0][4])
-    else:
-        # a/b/... vergeben
-        for idx, k in enumerate(keys_in_order):
-            base = base_by_key.get(k) or "(o. A.)"
-            new_by_key[k] = base[:-1] + letters[idx] + ")"
-
-    # 3) pro Shape sequenziell ersetzen (ohne Shape als Dict-Key!)
-    by_shape = {}  # (slide_id, shape_id) -> {"shape": shp, "items":[(idx,key,old_cite),...]}
-    for slide, shp, i, k, old_cite in occ:
-        try:
-            slide_id = int(slide.SlideID)
-            shape_id = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
-        except Exception:
-            continue
-        key = (slide_id, shape_id)
-        by_shape.setdefault(key, {"shape": shp, "items": []})["items"].append((i, k, old_cite))
-
-    for _, pack in by_shape.items():
-        shp = pack["shape"]
-        items = pack["items"]
-        try:
-            tr = shp.TextFrame.TextRange
-            txt = tr.Text or ""
-            arr = _load_shape_cites(shp)
-
-            changed = False
-            for i, k, old_cite in sorted(items, key=lambda x: x[0]):
-                new_cite = new_by_key.get(k, old_cite)
-                if new_cite == old_cite:
-                    continue
-
-                txt, replaced = _replace_first(txt, old_cite, new_cite)
-                if replaced:
-                    changed = True
-
-                # Tag updaten (Index passt zur Tag-Liste, solange prune vorher lief)
-                if i < len(arr) and arr[i].get("key") == k:
-                    arr[i]["cite"] = new_cite
-
-            if changed:
-                tr.Text = txt
-                _save_shape_cites(shp, arr)
-
-        except Exception:
-            continue
+            except Exception:
+                continue
 
 def renormalize_all_sig_groups():
-    pres = _get_presentation()
-    sigs = []
-    for slide in pres.Slides:
-        for shp in slide.Shapes:
-            try:
-                if not getattr(shp, "HasTextFrame", False):
+    with com_context("renormalize_all_sig_groups"):
+        pres = _get_presentation()
+        sigs = []
+        for slide in pres.Slides:
+            for shp in slide.Shapes:
+                try:
+                    if not getattr(shp, "HasTextFrame", False):
+                        continue
+                    arr = prune_cites_in_shape(shp)
+                    for c in arr:
+                        s = c.get("sig")
+                        if s and s not in sigs:
+                            sigs.append(s)
+                except Exception:
                     continue
-                arr = prune_cites_in_shape(shp)
-                for c in arr:
-                    s = c.get("sig")
-                    if s and s not in sigs:
-                        sigs.append(s)
-            except Exception:
-                continue
 
-    for s in sigs:
-        normalize_sig_group(s)
+        for s in sigs:
+            normalize_sig_group(s)
 
 def _safe_get(url, *, headers=None, params=None, timeout=HTTP_TIMEOUT, retries=2):
     """
@@ -555,26 +556,27 @@ def _get_docprop_by_name(props, name):
     return None
 
 def load_doc_state():
-    pres = _get_presentation()
-    props = pres.CustomDocumentProperties
-    p = _get_docprop_by_name(props, DOCPROP_NAME)
-    if p is None:
-        return {}
-    try:
-        return json.loads(p.Value)
-    except Exception:
-        return {}
+    with com_context("load_doc_state"):
+        pres = _get_presentation()
+        props = pres.CustomDocumentProperties
+        p = _get_docprop_by_name(props, DOCPROP_NAME)
+        if p is None:
+            return {}
+        try:
+            return json.loads(p.Value)
+        except Exception:
+            return {}
 
 def save_doc_state(state):
-    pres = _get_presentation()
-    props = pres.CustomDocumentProperties
-    payload = json.dumps(state, ensure_ascii=False)
-    p = _get_docprop_by_name(props, DOCPROP_NAME)
-    if p is not None:
-        p.Value = payload
-        return
-    props.Add(DOCPROP_NAME, False, 4, payload)
-# =========================================================
+    with com_context("save_doc_state"):
+        pres = _get_presentation()
+        props = pres.CustomDocumentProperties
+        payload = json.dumps(state, ensure_ascii=False)
+        p = _get_docprop_by_name(props, DOCPROP_NAME)
+        if p is not None:
+            p.Value = payload
+            return
+        props.Add(DOCPROP_NAME, False, 4, payload)
 
 
 # ============ Bibliographie: stabiler Anker über Tags =====
@@ -620,19 +622,20 @@ def _save_shape_cites(shp, arr):
 
 # LEGACY/OPTIONAL: Zero-width Marker (aktuell nicht verwendet in APA/Harvard; evtl. später wieder nützlich)
 def collect_all_cite_texts():
-    pres = _get_presentation()
-    out = []
-    for slide in pres.Slides:
-        for shp in slide.Shapes:
-            try:
-                if getattr(shp, "HasTextFrame", False):
-                    for c in prune_cites_in_shape(shp):
-                        t = (c.get("cite") or "").strip()
-                        if t:
-                            out.append(t)
-            except Exception:
-                continue
-    return out
+    with com_context("collect_all_cite_texts"):
+        pres = _get_presentation()
+        out = []
+        for slide in pres.Slides:
+            for shp in slide.Shapes:
+                try:
+                    if getattr(shp, "HasTextFrame", False):
+                        for c in prune_cites_in_shape(shp):
+                            t = (c.get("cite") or "").strip()
+                            if t:
+                                out.append(t)
+                except Exception:
+                    continue
+        return out
 
 def prune_cites_in_shape(shp):
     """Entfernt gespeicherte Cites, deren cite-Text nicht mehr im Shape-Text vorkommt."""
@@ -748,73 +751,74 @@ def set_bibliography_anchor_from_selection():
         )
 
 def _resolve_anchor_list():
-    pres = _get_presentation()
-    st = load_doc_state()
-    bib_guid = st.get("bib_guid")
-    anch = st.get("bib_anchor") or {}
-    
-    if bib_guid or anch:
-        _debug(f"Resolve anchors: bib_guid={bib_guid}, bib_anchor={anch}")
+    with com_context("_resolve_anchor_list"):
+        pres = _get_presentation()
+        st = load_doc_state()
+        bib_guid = st.get("bib_guid")
+        anch = st.get("bib_anchor") or {}
 
-    if not bib_guid and not anch:
-        return []
+        if bib_guid or anch:
+            _debug(f"Resolve anchors: bib_guid={bib_guid}, bib_anchor={anch}")
 
-    resolved = []
-    seen = set()  # (slide_id, shape_id)
+        if not bib_guid and not anch:
+            return []
 
-    # 1) Direkt über SlideID/ShapeID (am zuverlässigsten)
-    slide_id = anch.get("slide_id")
-    shape_id = anch.get("shape_id")
-    if slide_id and shape_id:
-        try:
-            slide_id = int(slide_id)
-            shape_id = int(shape_id)
+        resolved = []
+        seen = set()  # (slide_id, shape_id)
+
+        # 1) Direkt über SlideID/ShapeID (am zuverlässigsten)
+        slide_id = anch.get("slide_id")
+        shape_id = anch.get("shape_id")
+        if slide_id and shape_id:
+            try:
+                slide_id = int(slide_id)
+                shape_id = int(shape_id)
+                for slide in pres.Slides:
+                    if int(slide.SlideID) != slide_id:
+                        continue
+                    for shp in slide.Shapes:
+                        sid = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
+                        if sid == shape_id and getattr(shp, "HasTextFrame", False):
+                            key = (int(slide.SlideID), sid)
+                            if key not in seen:
+                                resolved.append((slide, shp))
+                                seen.add(key)
+                            break
+                    break
+            except Exception:
+                pass
+
+        # 2) Zusätzlich: alle Shapes mit GUID finden (für Fortsetzungsfolien / Duplikate)
+        if bib_guid:
             for slide in pres.Slides:
-                if int(slide.SlideID) != slide_id:
-                    continue
                 for shp in slide.Shapes:
-                    sid = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
-                    if sid == shape_id and getattr(shp, "HasTextFrame", False):
-                        key = (int(slide.SlideID), sid)
-                        if key not in seen:
-                            resolved.append((slide, shp))
-                            seen.add(key)
-                        break
-                break
-        except Exception:
-            pass
-
-    # 2) Zusätzlich: alle Shapes mit GUID finden (für Fortsetzungsfolien / Duplikate)
-    if bib_guid:
-        for slide in pres.Slides:
-            for shp in slide.Shapes:
-                try:
-                    if not getattr(shp, "HasTextFrame", False):
-                        continue
-
-                    sid = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
-                    key = (int(slide.SlideID), sid)
-                    if key in seen:
-                        continue
-
                     try:
-                        alt = shp.AlternativeText or ""
-                        if alt.strip() == (ALT_BIB_PREFIX + bib_guid):
+                        if not getattr(shp, "HasTextFrame", False):
+                            continue
+
+                        sid = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
+                        key = (int(slide.SlideID), sid)
+                        if key in seen:
+                            continue
+
+                        try:
+                            alt = shp.AlternativeText or ""
+                            if alt.strip() == (ALT_BIB_PREFIX + bib_guid):
+                                resolved.append((slide, shp))
+                                seen.add(key)
+                                continue
+                        except Exception:
+                            pass
+
+                        if _get_shape_tag(shp, TAG_BIB_GUID_KEY) == bib_guid:
                             resolved.append((slide, shp))
                             seen.add(key)
-                            continue
+
                     except Exception:
-                        pass
+                        continue
 
-                    if _get_shape_tag(shp, TAG_BIB_GUID_KEY) == bib_guid:
-                        resolved.append((slide, shp))
-                        seen.add(key)
-
-                except Exception:
-                    continue
-    
-    _debug(f"Resolve anchors: gefunden={len(resolved)}")
-    return resolved
+        _debug(f"Resolve anchors: gefunden={len(resolved)}")
+        return resolved
 
 def has_bibliography_anchor():
     return len(_resolve_anchor_list()) > 0
@@ -944,58 +948,59 @@ def _set_slide_title_text(slide, text):
 
 
 def _duplicate_anchor_to_new_slide_like(src_slide, src_shape):
-    pres = _get_presentation()
+    with com_context("_duplicate_anchor_to_new_slide_like"):
+        pres = _get_presentation()
 
-    # Titel der Quellfolie merken
-    title_text = _get_slide_title_text(src_slide)
+        # Titel der Quellfolie merken
+        title_text = _get_slide_title_text(src_slide)
 
-    # neue Folie mit gleichem Layout
-    new_slide = pres.Slides.AddSlide(pres.Slides.Count + 1, src_slide.CustomLayout)
-    _debug(f"Neue Bibliographie-Folie erzeugt (Layout: {src_slide.CustomLayout.Name})")
+        # neue Folie mit gleichem Layout
+        new_slide = pres.Slides.AddSlide(pres.Slides.Count + 1, src_slide.CustomLayout)
+        _debug(f"Neue Bibliographie-Folie erzeugt (Layout: {src_slide.CustomLayout.Name})")
 
-    # Titel übernehmen
-    if title_text:
-        _set_slide_title_text(new_slide, title_text)
-        _debug(f"Titel übernommen: '{title_text}'")
+        # Titel übernehmen
+        if title_text:
+            _set_slide_title_text(new_slide, title_text)
+            _debug(f"Titel übernommen: '{title_text}'")
 
-    # 1) Versuche: passendes Layout-Placeholder-Textfeld finden
-    new_shape = _find_best_text_placeholder(new_slide, src_shape=src_shape)
+        # 1) Versuche: passendes Layout-Placeholder-Textfeld finden
+        new_shape = _find_best_text_placeholder(new_slide, src_shape=src_shape)
 
-    if new_shape is not None:
-        try:
-            ptype = int(new_shape.PlaceholderFormat.Type)
-        except Exception:
-            ptype = "?"
+        if new_shape is not None:
+            try:
+                ptype = int(new_shape.PlaceholderFormat.Type)
+            except Exception:
+                ptype = "?"
 
-        _debug(f"Layout-Placeholder gefunden (Type={ptype}, Name='{getattr(new_shape, 'Name', '')}')")
+            _debug(f"Layout-Placeholder gefunden (Type={ptype}, Name='{getattr(new_shape, 'Name', '')}')")
 
-        try:
-            new_shape.TextFrame.TextRange.Text = ""
-        except Exception:
-            pass
-    else:
-        _debug("WARNUNG: Kein geeignetes Text-Placeholder im Layout gefunden → Copy/Paste-Fallback")
+            try:
+                new_shape.TextFrame.TextRange.Text = ""
+            except Exception:
+                pass
+        else:
+            _debug("WARNUNG: Kein geeignetes Text-Placeholder im Layout gefunden → Copy/Paste-Fallback")
 
-        # Fallback
-        src_shape.Copy()
-        pasted = new_slide.Shapes.Paste()
-        new_shape = pasted.Item(1)
-        try:
-            new_shape.TextFrame.TextRange.Text = ""
-        except Exception:
-            pass
+            # Fallback
+            src_shape.Copy()
+            pasted = new_slide.Shapes.Paste()
+            new_shape = pasted.Item(1)
+            try:
+                new_shape.TextFrame.TextRange.Text = ""
+            except Exception:
+                pass
 
-    # gleiche GUID taggen (Fortsetzung gehört zum selben Bib-Set)
-    st = load_doc_state()
-    bib_guid = st.get("bib_guid")
-    if bib_guid and new_shape is not None:
-        _set_shape_tag(new_shape, TAG_BIB_GUID_KEY, bib_guid)
-        try:
-            new_shape.AlternativeText = ALT_BIB_PREFIX + bib_guid
-        except Exception:
-            pass
+        # gleiche GUID taggen (Fortsetzung gehört zum selben Bib-Set)
+        st = load_doc_state()
+        bib_guid = st.get("bib_guid")
+        if bib_guid and new_shape is not None:
+            _set_shape_tag(new_shape, TAG_BIB_GUID_KEY, bib_guid)
+            try:
+                new_shape.AlternativeText = ALT_BIB_PREFIX + bib_guid
+            except Exception:
+                pass
 
-    return new_slide, new_shape
+        return new_slide, new_shape
 # =========================================================
 
 
@@ -1176,45 +1181,47 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
 PH_RE = re.compile(r"⟦zp:([A-Za-z0-9]+)⟧")
 
 def scan_all_placeholders():
-    pres = _get_presentation()
-    hits = []
-    for si, slide in enumerate(pres.Slides, start=1):
-        for hi, shp in enumerate(slide.Shapes, start=1):
-            try:
-                if shp.HasTextFrame and shp.TextFrame.HasText:
-                    txt = shp.TextFrame.TextRange.Text
-                    for m in PH_RE.finditer(txt):
-                        hits.append((si, hi, m.start(), m.group(1)))
-            except Exception:
-                continue
-    hits.sort(key=lambda x: (x[0], x[1], x[2]))
-    return hits
+    with com_context("scan_all_placeholders"):
+        pres = _get_presentation()
+        hits = []
+        for si, slide in enumerate(pres.Slides, start=1):
+            for hi, shp in enumerate(slide.Shapes, start=1):
+                try:
+                    if shp.HasTextFrame and shp.TextFrame.HasText:
+                        txt = shp.TextFrame.TextRange.Text
+                        for m in PH_RE.finditer(txt):
+                            hits.append((si, hi, m.start(), m.group(1)))
+                except Exception:
+                    continue
+        hits.sort(key=lambda x: (x[0], x[1], x[2]))
+        return hits
 
 def resync_bibliography_keys_from_document(state=None):
-    pres = _get_presentation()
-    keys = []
+    with com_context("resync_bibliography_keys_from_document"):
+        pres = _get_presentation()
+        keys = []
 
-    for slide in pres.Slides:
-        for shp in slide.Shapes:
-            try:
-                if shp.HasTextFrame:
-                    kept = prune_cites_in_shape(shp)
-                    for c in kept:
-                        k = c.get("key")
-                        if k and k not in keys:
-                            keys.append(k)
-            except Exception:
-                continue
+        for slide in pres.Slides:
+            for shp in slide.Shapes:
+                try:
+                    if shp.HasTextFrame:
+                        kept = prune_cites_in_shape(shp)
+                        for c in kept:
+                            k = c.get("key")
+                            if k and k not in keys:
+                                keys.append(k)
+                except Exception:
+                    continue
 
-    cur = load_doc_state()
-    cur["bib_keys"] = keys
-    save_doc_state(cur)
+        cur = load_doc_state()
+        cur["bib_keys"] = keys
+        save_doc_state(cur)
 
-    if state is not None:
-        state.clear()
-        state.update(cur)
+        if state is not None:
+            state.clear()
+            state.update(cur)
 
-    return keys
+        return keys
 
 def insert_ieee_placeholder(key, *, parent=None) -> bool:
     ppt_insert_text_at_cursor(f" ⟦zp:{key}⟧")
@@ -1227,33 +1234,38 @@ def renumber_ieee_and_update(*, parent=None) -> bool:
         if parent is not None:
             show_missing_zotero_config(parent)
         return False
-    
-    state = load_doc_state()
-    style = state.get("style") or DEFAULT_STYLE
 
-    order_keys = [h[3] for h in scan_all_placeholders()]
-    numbering, n = {}, 1
-    for k in order_keys:
-        if k not in numbering:
-            numbering[k] = n
-            n += 1
+    with com_context("renumber_ieee_and_update"):
+        state = load_doc_state()
+        style = state.get("style") or DEFAULT_STYLE
 
-    pres = _get_presentation()
-    for slide in pres.Slides:
-        for shp in slide.Shapes:
-            try:
-                if shp.HasTextFrame and shp.TextFrame.HasText:
-                    old = shp.TextFrame.TextRange.Text
-                    new = PH_RE.sub(lambda m: f"[{numbering.get(m.group(1), '?')}]", old)
-                    if new != old:
-                        shp.TextFrame.TextRange.Text = new
-            except Exception:
-                continue
+        order_keys = [h[3] for h in scan_all_placeholders()]
+        numbering, n = {}, 1
+        for k in order_keys:
+            if k not in numbering:
+                numbering[k] = n
+                n += 1
 
-    state["bib_keys"] = list(numbering.keys())
-    save_doc_state(state)
+        pres = _get_presentation()
+        for slide in pres.Slides:
+            for shp in slide.Shapes:
+                try:
+                    if shp.HasTextFrame and shp.TextFrame.HasText:
+                        old = shp.TextFrame.TextRange.Text
+                        new = PH_RE.sub(lambda m: f"[{numbering.get(m.group(1), '?')}]", old)
+                        if new != old:
+                            shp.TextFrame.TextRange.Text = new
+                except Exception:
+                    continue
 
-    if has_bibliography_anchor():
+        state["bib_keys"] = list(numbering.keys())
+        save_doc_state(state)
+
+        do_update = has_bibliography_anchor()
+
+    # Hinweis: update_bibliography() macht COM-Zugriffe → die Funktion selbst
+    # muss intern com_context() haben oder in einem com_context() aufgerufen werden.
+    if do_update:
         update_bibliography(
             state["bib_keys"], style,
             cfg.api_key, cfg.library_id, cfg.library_type,
