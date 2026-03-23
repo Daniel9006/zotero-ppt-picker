@@ -147,7 +147,7 @@ def get_cfg(*, allow_prompt: bool, parent: Optional[tk.Misc] = None) -> ZoteroCo
 # ===================== PowerPoint Helpers =================
 
 def _get_presentation():
-    app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+    app = win32.Dispatch("PowerPoint.Application")
     pres = app.ActivePresentation
     if not pres:
         raise RuntimeError("Keine aktive Präsentation.")
@@ -156,7 +156,7 @@ def _get_presentation():
 def _activate_powerpoint():
     with com_context("_activate_powerpoint"):
         try:
-            app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+            app = win32.Dispatch("PowerPoint.Application")
             app.Activate()
             if app.ActiveWindow is not None:
                 app.ActiveWindow.Activate()
@@ -165,7 +165,7 @@ def _activate_powerpoint():
 
 def _get_current_slide_and_shape():
     with com_context("_get_current_slide_and_shape"):
-        app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+        app = win32.Dispatch("PowerPoint.Application")
         win = app.ActiveWindow
         if not win:
             return None, None
@@ -244,19 +244,22 @@ def ppt_insert_text_at_cursor(s):
     Kein Fallback auf Shape-Auswahl → sonst ungewolltes Anhängen.
     """
     with com_context("ppt_insert_text_at_cursor"):
-        app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+        app = win32.Dispatch("PowerPoint.Application")
         win = app.ActiveWindow
         if not win:
             raise RuntimeError("Kein PowerPoint-Fenster aktiv.")
 
         sel = win.Selection
 
+        ppSelectionText = 3  # PowerPoint constant
+
         # EINZIG erlaubter Fall: echter Textcursor
         try:
-            tr = sel.TextRange
-            if tr is not None:
-                tr.InsertAfter(s)
-                return
+            if sel.Type == ppSelectionText:
+                tr = sel.TextRange
+                if tr is not None:
+                    tr.InsertAfter(s)
+                    return
         except Exception:
             pass
 
@@ -282,7 +285,7 @@ def ppt_insert_hidden_marker(marker_text: str, trailing_text: str = " "):
     (Font/Größe etc.). Optional wird danach ein normales Leerzeichen eingefügt.
     """
     with com_context("ppt_insert_hidden_marker"):
-        app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+        app = win32.Dispatch("PowerPoint.Application")
         win = app.ActiveWindow
         if not win:
             raise RuntimeError("Kein PowerPoint-Fenster aktiv.")
