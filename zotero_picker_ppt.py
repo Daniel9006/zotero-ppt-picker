@@ -241,6 +241,7 @@ def _get_current_slide_and_shape():
 def ppt_insert_text_at_cursor(s):
     """
     Fügt Text ausschließlich an der echten Cursorposition ein.
+    Gibt das tatsächliche Shape des echten Textcursors zurück.
     Kein Fallback auf Shape-Auswahl → sonst ungewolltes Anhängen.
     """
     with com_context("ppt_insert_text_at_cursor"):
@@ -250,24 +251,52 @@ def ppt_insert_text_at_cursor(s):
             raise RuntimeError("Kein PowerPoint-Fenster aktiv.")
 
         sel = win.Selection
-
         ppSelectionText = 3  # PowerPoint constant
 
-        # EINZIG erlaubter Fall: echter Textcursor
+        # Nur echter Textcursor ist erlaubt
         try:
-            if sel.Type == ppSelectionText:
-                tr = sel.TextRange
-                if tr is not None:
-                    tr.InsertAfter(s)
-                    return
+            sel_type = sel.Type
         except Exception:
-            pass
+            sel_type = None
 
-        # alles andere ist NOK
-        raise RuntimeError(
-            "Kein Textcursor gefunden.\n"
-            "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
-        )
+        if sel_type != ppSelectionText:
+            raise RuntimeError(
+                "Kein Textcursor gefunden.\n"
+                "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
+            )
+       
+        # TextRange holen
+        try:
+            tr = sel.TextRange
+        except Exception:
+            tr = None
+
+        if tr is None:
+            raise RuntimeError(
+                "Kein Textcursor gefunden.\n"
+                "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
+            )
+
+        # WICHTIG: Shape vor dem Insert bestimmen
+        shp = None
+        try:
+            sr = sel.ShapeRange
+            if sr is not None and sr.Count >= 1:
+                candidate = sr.Item(1)
+                if candidate is not None and getattr(candidate, "HasTextFrame", False):
+                    shp = candidate
+        except Exception:
+            shp = None
+
+        if shp is None:
+            raise RuntimeError(
+                "Das Textfeld konnte vor dem Einfügen nicht eindeutig erkannt werden.\n"
+                "Bitte klicke erneut in das Textfeld und versuche es noch einmal."
+            )
+
+        # Jetzt erst einfügen
+        tr.InsertAfter(s)
+        return shp
     
 def _copy_font(src_font, dst_font):
     """Kopiert möglichst viele Font-Eigenschaften robust."""
@@ -699,13 +728,56 @@ def _replace_first(text, old, new):
 
 def set_bibliography_anchor_from_selection():
     with com_context("set_bibliography_anchor_from_selection"):
-        slide, shp = _get_current_slide_and_shape()
-        _debug(f"Anchor-Set: slide={getattr(slide,'SlideID',None)}, shape_id={getattr(shp,'Id',getattr(shp,'ID',None))}, hasTextFrame={getattr(shp,'HasTextFrame',False)}")
+        app = win32.Dispatch("PowerPoint.Application")
+        win = app.ActiveWindow
+        if not win:
+            raise RuntimeError("Kein PowerPoint-Fenster aktiv.")
+
+        sel = win.Selection
+        slide = None
+        shp = None
+
+        ppSelectionShapes = 2
+        ppSelectionText = 3
+
+        try:
+            slide = sel.SlideRange(1)
+        except Exception:
+            try:
+                slide = win.View.Slide
+            except Exception:
+                slide = None
+
+        try:
+            sel_type = sel.Type
+        except Exception:
+            sel_type = None
+
+        if sel_type == ppSelectionShapes:
+            try:
+                sr = sel.ShapeRange
+                if sr is not None and sr.Count >= 1:
+                    shp = sr.Item(1)
+            except Exception:
+                shp = None
+
+        elif sel_type == ppSelectionText:
+            try:
+                sr = sel.ShapeRange
+                if sr is not None and sr.Count >= 1:
+                    shp = sr.Item(1)
+            except Exception:
+                shp = None
+
+        _debug(
+            f"Anchor-Set: slide={getattr(slide,'SlideID',None)}, "
+            f"shape_id={getattr(shp,'Id',getattr(shp,'ID',None))}, "
+            f"hasTextFrame={getattr(shp,'HasTextFrame',False)}"
+        )
 
         if slide is None:
             raise RuntimeError("Keine aktive Folie gefunden.")
 
-        # ROBUSTE Prüfung: echtes Textfeld?
         if shp is None or not getattr(shp, "HasTextFrame", False):
             raise RuntimeError(
                 "Bitte wähle ein Textfeld aus.\n"
@@ -1336,7 +1408,8 @@ def run_in_thread(name: str, fn, *, on_error=None, ui_parent=None):
                     pass
             elif ui_parent is not None:
                 try:
-                    ui_parent.after(0, lambda: messagebox.showerror("Fehler", str(e), parent=ui_parent))
+                    msg = str(e).strip() or "Unbekannter Fehler. Details siehe zotero_ppt.log."
+                    ui_parent.after(0, lambda: messagebox.showerror("Fehler", msg, parent=ui_parent))
                 except Exception:
                     pass
 
@@ -1504,15 +1577,14 @@ class PickerApp:
         self.root.after(300, lambda: self.root.attributes("-topmost", False))
 
     def set_status(self, msg=""):
-        try:
-            base = get_status_summary()
-        except Exception as e:
-            base = f"(Status nicht verfügbar: {e})"
-
         if msg:
-            self.status.config(text=f"{msg}   |   {base}")
-        else:
-            self.status.config(text=base)
+            self.status.config(text=msg)
+            return
+
+        try:
+            self.status.config(text=get_status_summary())
+        except Exception as e:
+            self.status.config(text=f"(Status nicht verfügbar: {e})")
 
     def _ensure_cfg_ready(self):
         # 1) zuerst ohne Prompt probieren (nicht blockierend)
@@ -1674,19 +1746,6 @@ class PickerApp:
                 self.root.after(0, _finish_ieee)
                 return
 
-            # 1) Ziel in PowerPoint bestimmen (Shape für Tagging)
-            slide, shp = _get_current_slide_and_shape()
-            _debug(
-                f"Insert target: slide={getattr(slide,'SlideID',None)}, "
-                f"shape_id={getattr(shp,'Id',getattr(shp,'ID',None))}"
-            )
-
-            if slide is None:
-                raise RuntimeError("Keine aktive Folie gefunden.")
-
-            if shp is None or not getattr(shp, "HasTextFrame", False):
-                raise RuntimeError("Bitte Textfeld auswählen und Cursor setzen.")
-
             # 2) Bereits vorhandene Zitate nach Zotero-Key sammeln
             by_key = collect_all_cites_by_key()
 
@@ -1698,10 +1757,10 @@ class PickerApp:
                 cite = _format_authoryear_base_from_item(it)
 
             # 3) Zitat an Cursorposition einfügen (hart: nur echter Cursor)
-            ppt_insert_text_at_cursor(cite)
+            shp = ppt_insert_text_at_cursor(cite)
             _debug(f"Inserted cite: {cite}")
 
-            # 4) Cite im Shape-Tag speichern (Key, Text, Sig)
+            # 4) Cite im tatsächlich verwendeten Shape-Tag speichern
             arr = _load_shape_cites(shp)
             arr.append({"key": key, "cite": cite, "sig": sig})
             _save_shape_cites(shp, arr)
