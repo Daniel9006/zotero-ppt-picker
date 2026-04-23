@@ -240,63 +240,50 @@ def _get_current_slide_and_shape():
 
 def ppt_insert_text_at_cursor(s):
     """
-    Fügt Text ausschließlich an der echten Cursorposition ein.
-    Gibt das tatsächliche Shape des echten Textcursors zurück.
-    Kein Fallback auf Shape-Auswahl → sonst ungewolltes Anhängen.
+    Insert text only at the actual cursor position.
+    No fallback to shape-only selection to avoid unintended appending.
     """
-    with com_context("ppt_insert_text_at_cursor"):
-        app = win32.Dispatch("PowerPoint.Application")
-        win = app.ActiveWindow
-        if not win:
-            raise RuntimeError("Kein PowerPoint-Fenster aktiv.")
+    app = win32.gencache.EnsureDispatch("PowerPoint.Application")
+    win = app.ActiveWindow
+    if not win:
+        raise RuntimeError("Kein PowerPoint-Fenster aktiv.")
 
-        sel = win.Selection
-        ppSelectionText = 3  # PowerPoint constant
+    cursor_error = (
+        "Kein Textcursor gefunden.\n"
+        "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
+    )
 
-        # Nur echter Textcursor ist erlaubt
-        try:
-            sel_type = sel.Type
-        except Exception:
-            sel_type = None
+    selected_text_error = (
+        "Text ist markiert.\n"
+        "Bitte markiere keinen Text, sondern setze nur den Cursor "
+        "in das Textfeld und versuche es erneut."
+    )
 
-        if sel_type != ppSelectionText:
-            raise RuntimeError(
-                "Kein Textcursor gefunden.\n"
-                "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
-            )
-       
-        # TextRange holen
-        try:
-            tr = sel.TextRange
-        except Exception:
-            tr = None
+    sel = win.Selection
+    ppSelectionText = 3
 
-        if tr is None:
-            raise RuntimeError(
-                "Kein Textcursor gefunden.\n"
-                "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
-            )
+    try:
+        sel_type = sel.Type
+    except Exception:
+        sel_type = None
 
-        # WICHTIG: Shape vor dem Insert bestimmen
-        shp = None
-        try:
-            sr = sel.ShapeRange
-            if sr is not None and sr.Count >= 1:
-                candidate = sr.Item(1)
-                if candidate is not None and getattr(candidate, "HasTextFrame", False):
-                    shp = candidate
-        except Exception:
-            shp = None
+    if sel_type != ppSelectionText:
+        raise RuntimeError(cursor_error)
 
-        if shp is None:
-            raise RuntimeError(
-                "Das Textfeld konnte vor dem Einfügen nicht eindeutig erkannt werden.\n"
-                "Bitte klicke erneut in das Textfeld und versuche es noch einmal."
-            )
+    try:
+        tr = sel.TextRange
+        tr_length = tr.Length
+    except Exception:
+        tr = None
+        tr_length = None
 
-        # Jetzt erst einfügen
-        tr.InsertAfter(s)
-        return shp
+    if tr is None:
+        raise RuntimeError(cursor_error)
+
+    if tr_length != 0:
+        raise RuntimeError(selected_text_error)
+
+    tr.InsertAfter(s)
     
 def _copy_font(src_font, dst_font):
     """Kopiert möglichst viele Font-Eigenschaften robust."""
