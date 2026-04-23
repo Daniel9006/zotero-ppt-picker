@@ -52,24 +52,33 @@ COM_LOCK = threading.RLock()
 LOG = logging.getLogger("zotero_ppt")
 
 @contextlib.contextmanager
-def com_context(action: str = ""):
+def com_context(action: str = "", *, use_lock: bool = True):
     """
     Option A+:
-    - CoInitialize/CoUninitialize pro Worker-Thread
-    - serialisiert alle COM-Zugriffe via COM_LOCK (RLock erlaubt nested calls)
+    - Calls CoInitialize/CoUninitialize per thread context
+    - Optionally serializes COM access via COM_LOCK
     """
     pythoncom.CoInitialize()
     try:
-        with COM_LOCK:
+        if use_lock:
+            with COM_LOCK:
+                if action:
+                    LOG.debug("COM enter: %s", action)
+                try:
+                    yield
+                finally:
+                    if action:
+                        LOG.debug("COM exit: %s", action)
+        else:
             if action:
-                LOG.debug("COM enter: %s", action)
-            yield
+                LOG.debug("COM enter(no-lock): %s", action)
+            try:
+                yield
+            finally:
+                if action:
+                    LOG.debug("COM exit(no-lock): %s", action)
     finally:
-        try:
-            if action:
-                LOG.debug("COM exit: %s", action)
-        finally:
-            pythoncom.CoUninitialize()
+        pythoncom.CoUninitialize()
 # ========================================================================
 
 # ======== Zero-width Marker für Nicht-IEEE-Zitate ========
@@ -240,50 +249,63 @@ def _get_current_slide_and_shape():
 
 def ppt_insert_text_at_cursor(s):
     """
-    Insert text only at the actual cursor position.
-    No fallback to shape-only selection to avoid unintended appending.
+    Inserts text strictly at the actual cursor position.
+    Returns the shape corresponding to the active text cursor.
+    No fallback to shape selection to avoid unintended appending.
     """
-    app = win32.gencache.EnsureDispatch("PowerPoint.Application")
-    win = app.ActiveWindow
-    if not win:
-        raise RuntimeError("Kein PowerPoint-Fenster aktiv.")
+    with com_context("ppt_insert_text_at_cursor"):
+        app = win32.Dispatch("PowerPoint.Application")
+        win = app.ActiveWindow
+        if not win:
+            raise RuntimeError("Kein PowerPoint-Fenster aktiv.")
 
-    cursor_error = (
-        "Kein Textcursor gefunden.\n"
-        "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
-    )
+        sel = win.Selection
+        ppSelectionText = 3  # PowerPoint constant
 
-    selected_text_error = (
-        "Text ist markiert.\n"
-        "Bitte markiere keinen Text, sondern setze nur den Cursor "
-        "in das Textfeld und versuche es erneut."
-    )
+        # Only a real text cursor is allowed
+        try:
+            sel_type = sel.Type
+        except Exception:
+            sel_type = None
 
-    sel = win.Selection
-    ppSelectionText = 3
+        if sel_type != ppSelectionText:
+            raise RuntimeError(
+                "Kein Textcursor gefunden.\n"
+                "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
+            )
 
-    try:
-        sel_type = sel.Type
-    except Exception:
-        sel_type = None
+        # Retrieve TextRange
+        try:
+            tr = sel.TextRange
+        except Exception:
+            tr = None
 
-    if sel_type != ppSelectionText:
-        raise RuntimeError(cursor_error)
+        if tr is None:
+            raise RuntimeError(
+                "Kein Textcursor gefunden.\n"
+                "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
+            )
 
-    try:
-        tr = sel.TextRange
-        tr_length = tr.Length
-    except Exception:
-        tr = None
-        tr_length = None
+        # IMPORTANT: determine the shape before insertion
+        shp = None
+        try:
+            sr = sel.ShapeRange
+            if sr is not None and sr.Count >= 1:
+                candidate = sr.Item(1)
+                if candidate is not None and getattr(candidate, "HasTextFrame", False):
+                    shp = candidate
+        except Exception:
+            shp = None
 
-    if tr is None:
-        raise RuntimeError(cursor_error)
+        if shp is None:
+            raise RuntimeError(
+                "Das Textfeld konnte vor dem Einfügen nicht eindeutig erkannt werden.\n"
+                "Bitte klicke erneut in das Textfeld und versuche es noch einmal."
+            )
 
-    if tr_length != 0:
-        raise RuntimeError(selected_text_error)
-
-    tr.InsertAfter(s)
+        # Perform insertion
+        tr.InsertAfter(s)
+        return shp
     
 def _copy_font(src_font, dst_font):
     """Kopiert möglichst viele Font-Eigenschaften robust."""
@@ -1368,21 +1390,22 @@ def label_to_code(label):
 def run_in_thread(name: str, fn, *, on_error=None, ui_parent=None):
     """
     Option A+ Worker:
-    - eindeutiger Thread-Name
-    - COM init/uninit pro Thread
-    - serialisiert COM über com_context()
-    - Exceptions mit Stacktrace
-    - keine UI-Blockade
+    - unique thread name
+    - COM initialized/uninitialized once per worker thread
+    - COM locking only in actual COM helpers via com_context(...)
+    - exceptions logged with full stack trace
+    - no UI blocking
     """
     def _wrap():
         threading.current_thread().name = f"ZP-{name}"
+        LOG.debug("Worker start: %s", name)
         try:
-            # Wichtig: wir initialisieren COM + Lock NUR für die Dauer von fn().
-            # fn() darf selbst wiederum com_context() nutzen (RLock macht das safe).
-            with com_context(f"worker:{name}"):
+            # Nur COM initialisieren, aber NICHT den globalen COM-Lock
+            # für die gesamte Worker-Laufzeit halten.
+            with com_context(f"worker:{name}", use_lock=False):
                 fn()
+            LOG.debug("Worker done: %s", name)
         except Exception as e:
-            # Vollständig loggen (Stacktrace)
             try:
                 LOG.exception("Worker failed: %s", name)
             except Exception:
