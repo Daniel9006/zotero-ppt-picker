@@ -751,7 +751,7 @@ def collect_all_cite_texts():
         return out
 
 def prune_cites_in_shape(shp):
-    """Entfernt gespeicherte Cites, deren cite-Text nicht mehr im Shape-Text vorkommt."""
+    """Remove stored cites that no longer have a visible occurrence in the shape text."""
     arr = _load_shape_cites(shp)
     if not arr:
         return []
@@ -761,9 +761,24 @@ def prune_cites_in_shape(shp):
     except Exception:
         return arr
 
-    kept = [c for c in arr if (c.get("cite") or "") in txt]
+    remaining_counts = {}
+    for c in arr:
+        cite = c.get("cite") or ""
+        if cite:
+            remaining_counts[cite] = txt.count(cite)
+
+    kept = []
+    for c in arr:
+        cite = c.get("cite") or ""
+        if not cite:
+            continue
+        if remaining_counts.get(cite, 0) > 0:
+            kept.append(c)
+            remaining_counts[cite] -= 1
+
     if kept != arr:
         _save_shape_cites(shp, kept)
+
     return kept
 
 def _format_authoryear_base_from_item(item):
@@ -1168,6 +1183,10 @@ def html_to_text(html_str):
     text = html.unescape(text)
     return re.sub(r"\s+\n", "\n", text).strip()
 
+def _strip_ieee_bibliography_label(entry: str) -> str:
+    """Remove numbering returned by Zotero for single IEEE bibliography entries."""
+    return re.sub(r"^\s*(?:\[\d+\]|\d+\.)\s*", "", entry or "").strip()
+
 def get_bibliography_entry_webapi(api_key, library_id, library_type, item_key, style):
     base = f"https://api.zotero.org/{library_type}s/{library_id}"
     headers = {
@@ -1271,6 +1290,10 @@ def _try_fit_entries_into_shape(shape, entries, preferred_size=PREF_FONT_SIZE, m
             tr.Font.Size = sz
         except Exception:
             pass
+        try:
+            tr.ParagraphFormat.Bullet.Visible = False
+        except Exception:
+            pass
 
     def overflows():
         try:
@@ -1328,6 +1351,14 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
             _debug(f"Bib cleared: anchors={len(anchors)} style={style}")
             return
 
+    if style == "ieee" and numbering is None:
+        numbering = build_ieee_numbering_from_document()
+        key_set = set(keys)
+        ordered_keys = [k for k in numbering.keys() if k in key_set]
+        if ordered_keys:
+            keys = ordered_keys
+        _debug(f"Bib update IEEE numbering: keys={len(keys)} numbering={len(numbering)}")
+
     # 2) Build entries via Web API (do not hold COM lock)
     entries = []
     failures = []
@@ -1341,6 +1372,9 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
                 k,
                 style
             )
+            if style == "ieee":
+                entry = _strip_ieee_bibliography_label(entry)
+
             if numbering and k in numbering:
                 entries.append(f"[{numbering[k]}] {entry}")
             else:
@@ -1426,6 +1460,110 @@ def scan_all_placeholders():
         hits.sort(key=lambda x: (x[0], x[1], x[2]))
         return hits
 
+IEEE_CITE_RE = re.compile(r"^\[\d+\]$")
+
+def _is_ieee_cite_record(c):
+    return c.get("style") == "ieee" or IEEE_CITE_RE.match(c.get("cite") or "")
+
+def _collect_ieee_cites_in_shape(shp, arr=None):
+    """
+    Return IEEE cite records in visible text order for one shape.
+
+    This is required because Shape Tags preserve insertion/appending order,
+    not the actual text position after a user inserts a citation before
+    existing IEEE citations.
+    """
+    if arr is None:
+        arr = prune_cites_in_shape(shp)
+
+    try:
+        txt = shp.TextFrame.TextRange.Text or ""
+    except Exception:
+        return "", [], []
+
+    next_start_by_token = {}
+    positioned = []
+    fallback = []
+
+    for idx, c in enumerate(arr):
+        if not _is_ieee_cite_record(c):
+            continue
+
+        tokens = []
+        cite = c.get("cite") or ""
+        key = c.get("key") or ""
+
+        if cite:
+            tokens.append(cite)
+        if key:
+            tokens.append(f"⟦zp:{key}⟧")
+
+        # Preserve order while removing duplicate candidate tokens.
+        tokens = list(dict.fromkeys(tokens))
+
+        best = None
+        for token in tokens:
+            start_from = next_start_by_token.get(token, 0)
+            pos = txt.find(token, start_from)
+            if pos < 0:
+                continue
+
+            candidate = (pos, pos + len(token), token)
+            if best is None or candidate[0] < best[0]:
+                best = candidate
+
+        if best is None:
+            fallback.append({
+                "idx": idx,
+                "record": c,
+                "start": None,
+                "end": None,
+                "old_text": "",
+            })
+            continue
+
+        start, end, old_text = best
+        next_start_by_token[old_text] = end
+
+        positioned.append({
+            "idx": idx,
+            "record": c,
+            "start": start,
+            "end": end,
+            "old_text": old_text,
+        })
+
+    positioned.sort(key=lambda hit: (hit["start"], hit["idx"]))
+    return txt, positioned, fallback
+
+def build_ieee_numbering_from_document():
+    """Build stable IEEE numbering from stored cite tags in visible document order."""
+    with com_context("build_ieee_numbering_from_document"):
+        pres = _get_presentation()
+        numbering = {}
+        n = 1
+
+        for slide in pres.Slides:
+            for shp in slide.Shapes:
+                try:
+                    if not getattr(shp, "HasTextFrame", False):
+                        continue
+
+                    arr = prune_cites_in_shape(shp)
+                    _, positioned, fallback = _collect_ieee_cites_in_shape(shp, arr)
+
+                    for hit in positioned + fallback:
+                        c = hit["record"]
+                        key = c.get("key")
+                        if key and key not in numbering:
+                            numbering[key] = n
+                            n += 1
+
+                except Exception:
+                    continue
+
+        return numbering
+
 def resync_bibliography_keys_from_document(state=None):
     with com_context("resync_bibliography_keys_from_document"):
         pres = _get_presentation()
@@ -1455,18 +1593,24 @@ def resync_bibliography_keys_from_document(state=None):
 
 def insert_ieee_placeholder(key, *, parent=None) -> bool:
     """
-    IEEE: Platzhalter einfügen + Renummerieren + ggf. Bibliographie aktualisieren.
-    Läuft asynchron im Worker (Option A+), damit UI nicht blockiert.
-    Gibt True zurück, wenn der Job gestartet wurde.
+    IEEE: insert placeholder, persist citation metadata, renumber,
+    and update bibliography if possible.
+    Runs asynchronously in a worker so the UI does not block.
     """
     def _work():
-        # 1) Platzhalter am echten Cursor einfügen (wirft bei fehlendem Cursor)
-        ppt_insert_text_at_cursor(f" ⟦zp:{key}⟧")
+        placeholder = f"⟦zp:{key}⟧"
+        shp = ppt_insert_text_at_cursor(f" {placeholder}")
 
-        # 2) Renummerieren + ggf. Bibliographie aktualisieren
+        arr = _load_shape_cites(shp)
+        arr.append({
+            "key": key,
+            "cite": placeholder,
+            "style": "ieee",
+        })
+        _save_shape_cites(shp, arr)
+
         ok = renumber_ieee_and_update(parent=parent)
 
-        # 3) UI-Status
         if parent is not None:
             parent.after(
                 0,
@@ -1483,6 +1627,79 @@ def insert_ieee_placeholder(key, *, parent=None) -> bool:
     return True
 
 def renumber_ieee_and_update(*, parent=None) -> bool:
+    with com_context("renumber_ieee_and_update"):
+        state = load_doc_state()
+        style = state.get("style") or DEFAULT_STYLE
+
+        numbering = build_ieee_numbering_from_document()
+
+        pres = _get_presentation()
+        for slide in pres.Slides:
+            for shp in slide.Shapes:
+                try:
+                    if not getattr(shp, "HasTextFrame", False):
+                        continue
+
+                    tr = shp.TextFrame.TextRange
+                    arr = prune_cites_in_shape(shp)
+                    txt, positioned, fallback = _collect_ieee_cites_in_shape(shp, arr)
+
+                    replacements = []
+                    tags_changed = False
+
+                    for hit in positioned:
+                        c = hit["record"]
+                        key = c.get("key")
+                        if not key or key not in numbering:
+                            continue
+
+                        old_text = hit["old_text"]
+                        new_cite = f"[{numbering[key]}]"
+
+                        if old_text and old_text != new_cite:
+                            replacements.append((hit["start"], hit["end"], new_cite))
+
+                        if c.get("cite") != new_cite or c.get("style") != "ieee":
+                            c["cite"] = new_cite
+                            c["style"] = "ieee"
+                            tags_changed = True
+
+                    # Fallback records have no reliable text position, but their tags
+                    # can still be normalized if their key is part of the numbering.
+                    for hit in fallback:
+                        c = hit["record"]
+                        key = c.get("key")
+                        if not key or key not in numbering:
+                            continue
+
+                        new_cite = f"[{numbering[key]}]"
+                        if c.get("cite") != new_cite or c.get("style") != "ieee":
+                            c["cite"] = new_cite
+                            c["style"] = "ieee"
+                            tags_changed = True
+
+                    if replacements:
+                        for start, end, new_cite in sorted(
+                            replacements,
+                            key=lambda item: item[0],
+                            reverse=True,
+                        ):
+                            txt = txt[:start] + new_cite + txt[end:]
+
+                        tr.Text = txt
+
+                    if replacements or tags_changed:
+                        _save_shape_cites(shp, arr)
+
+                except Exception:
+                    continue
+
+        state["bib_keys"] = list(numbering.keys())
+        save_doc_state(state)
+
+    if not has_bibliography_anchor():
+        return True
+
     try:
         cfg = get_cfg(allow_prompt=False, parent=parent)
     except RuntimeError:
@@ -1490,43 +1707,14 @@ def renumber_ieee_and_update(*, parent=None) -> bool:
             parent.after(0, lambda: show_missing_zotero_config(parent))
         return False
 
-    with com_context("renumber_ieee_and_update"):
-        state = load_doc_state()
-        style = state.get("style") or DEFAULT_STYLE
-
-        order_keys = [h[3] for h in scan_all_placeholders()]
-        numbering, n = {}, 1
-        for k in order_keys:
-            if k not in numbering:
-                numbering[k] = n
-                n += 1
-
-        pres = _get_presentation()
-        for slide in pres.Slides:
-            for shp in slide.Shapes:
-                try:
-                    if shp.HasTextFrame and shp.TextFrame.HasText:
-                        old = shp.TextFrame.TextRange.Text
-                        new = PH_RE.sub(lambda m: f"[{numbering.get(m.group(1), '?')}]", old)
-                        if new != old:
-                            shp.TextFrame.TextRange.Text = new
-                except Exception:
-                    continue
-
-        state["bib_keys"] = list(numbering.keys())
-        save_doc_state(state)
-
-        do_update = has_bibliography_anchor()
-
-    # Hinweis: update_bibliography() macht COM-Zugriffe → die Funktion selbst
-    # muss intern com_context() haben oder in einem com_context() aufgerufen werden.
-    if do_update:
-        update_bibliography(
-            state["bib_keys"], style,
-            cfg.api_key, cfg.library_id, cfg.library_type,
-            numbering=numbering
-        )
-
+    update_bibliography(
+        list(numbering.keys()),
+        style,
+        cfg.api_key,
+        cfg.library_id,
+        cfg.library_type,
+        numbering=numbering,
+    )
     return True
 # =========================================================
 
@@ -1890,7 +2078,17 @@ class PickerApp:
 
             # IEEE: Platzhalter + Renummerierung (läuft komplett im Worker)
             if style_local == "ieee":
-                ppt_insert_text_at_cursor(f" ⟦zp:{key}⟧")
+                placeholder = f"⟦zp:{key}⟧"
+                shp = ppt_insert_text_at_cursor(f" {placeholder}")
+
+                arr = _load_shape_cites(shp)
+                arr.append({
+                    "key": key,
+                    "cite": placeholder,
+                    "style": "ieee",
+                })
+                _save_shape_cites(shp, arr)
+
                 ok = renumber_ieee_and_update(parent=self.root)
 
                 def _finish_ieee():
@@ -2187,7 +2385,12 @@ class PickerApp:
                 renormalize_all_sig_groups()
                 _debug("Cleanup: renormalize_all_sig_groups done")
                 new_keys = resync_bibliography_keys_from_document(state)
-
+            # 2b) IEEE: renumber visible citations and update stored cite tags
+            if style == "ieee":
+                renumber_ieee_and_update(parent=self.root)
+                new_keys = resync_bibliography_keys_from_document(state)
+                _debug("Cleanup: renumber_ieee_and_update done")
+            
             # 3) Basis-Status bestimmen
             if not new_keys:
                 base_status = "Bereinigt: keine Zitate mehr im Dokument gefunden."

@@ -1,96 +1,107 @@
 # Team Workflow – Zotero ↔ PowerPoint
 
-Dieses Projekt nutzt einen einfachen, sicheren Git-Workflow
-für kleine Teams (1–2 Personen).
+This project uses a simple and safe Git workflow for small teams of one or two people.
 
-Ziel:
-- stabile Hauptversion
-- nachvollziehbare Historie
-- jederzeitige Rückkehr zu funktionierenden Ständen
+Goals:
+- keep the main branch stable
+- maintain a traceable history
+- allow returning to known working states at any time
 
 ---
 
-## Grundregeln
+## Ground rules
 
-1. **`main` soll immer lauffähig sein**
-   - keine kaputten Zwischenstände
-   - kein „WIP“ auf `main`
+1. **`main` should always be runnable**
+   - no broken intermediate states
+   - no `WIP` commits on `main`
 
-2. **Kleine Änderungen → direkt oder kurzer Branch**
-3. **Größere Umbauten → eigener Feature-Branch**
-   - z.B. `feature/config-arch`, `fix/com-threading`
+2. **Small changes → commit directly or use a short-lived branch**
 
-4. **Kein Rebase-Zwang**
-   - wir nutzen `git merge`
-   - Fokus auf Verständlichkeit, nicht auf perfekte Historie
+3. **Larger changes → use a dedicated feature branch**
+   - examples: `feature/config-arch`, `fix/com-threading`
+
+4. **No mandatory rebase workflow**
+   - use `git merge`
+   - focus on clarity, not on a perfect history
 
 ---
 
 ## Refactor governance
 
-Major refactors (architecture, core logic, shared engines) follow these rules:
+Major refactors such as architecture changes, core logic changes, or shared engines follow these rules:
 
 - Refactors should be proposed and discussed before major effort.
-- Use a feature branch (e.g. `feature/style-engine`, `refactor/config-factory`).
-- Refactors should not mix with urgent bug fixes on the same branch.
+- Use a feature or refactor branch, for example `feature/style-engine` or `refactor/config-factory`.
+- Refactors should not be mixed with urgent bug fixes on the same branch.
 - Do not merge an incomplete refactor into `main`; ensure:
   - tests pass
   - exceptions and error flows are deterministic
-  - no regression in stable flows
+  - stable flows do not regress
 
-**Stabilization vs Refactor**
-- Bugfix stabilization → `fix/*` branches, merges into `main`
+**Stabilization vs. refactor**
+- Bugfix stabilization → `fix/*` branches, merged into `main`
 - Architectural refactor → `feature/*` or `refactor/*` branches
 - Refactors belong to phase gates in `VERSIONING.md`
 
-## Commit-Regeln
+---
 
-- Klein & logisch zusammenhängend committen
-- Aussagekräftige Nachrichten, z.B.:
+## Commit rules
+
+- Commit small, logically related changes.
+- Use meaningful commit messages, for example:
   - `feat: add config loader`
   - `fix: COM init in worker thread`
   - `refactor: split zotero access layer`
 
-Empfohlene Präfixe:
-- `feat:` neues Feature
-- `fix:` Bugfix
-- `refactor:` Umstrukturierung
-- `docs:` Doku / Kommentare
+Recommended prefixes:
+- `feat:` new feature
+- `fix:` bug fix
+- `refactor:` restructuring without intended behavior change
+- `docs:` documentation or comments
 
 ---
 
 ## Branching
 
-- `main` → stabiler Hauptbranch
-- `feature/*` → neue Features / Umbauten
-- `fix/*` → Bugfixes
-- `experiment/*` → Tests / Spielwiese (dürfen gelöscht werden)
+- `main` → stable main branch
+- `feature/*` → new features or larger changes
+- `fix/*` → bug fixes
+- `experiment/*` → tests or playground branches that may be deleted
 
-Vor Merge in `main`:
-1. Branch lokal getestet
-2. `main` wurde gemerged (kein veralteter Stand)
+Before merging into `main`:
+
+1. Test the branch locally.
+2. Merge the latest `main` into the branch so the branch is not outdated.
+3. For bug fixes affecting citation or bibliography behavior, include a short manual test note in the commit message or release notes.
 
 ---
 
-## Stabile Versionen (Tags)
+## Stable versions and tags
 
-Wenn ein Stand **nachweislich funktioniert**:
-- Zotero-Zugriff OK
-- PowerPoint-Insert OK
-- kein bekannter Crash
+When a state is verified to work:
 
-→ **Tag setzen**, z.B.:
+- Zotero access works
+- PowerPoint insertion works
+- no known crash exists in the tested scope
+
+→ create a tag, for example:
 
 - `v0.1.0`
 - `v0.2.0`
 - `v0.2.1`
 
-Tags sind **fix** und markieren funktionierende Versionen.
+Tags are fixed markers for known working versions.
 
 ---
 
-## Alte Versionen wiederverwenden
+## Reusing old versions
 
-- Zum Testen:
-  ```bash
-  git switch --detach v0.2.0
+To test an old tagged version:
+
+```bash
+git switch --detach v0.2.0
+```
+To return to the main branch:
+```bash
+git switch main
+```

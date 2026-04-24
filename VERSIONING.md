@@ -9,7 +9,12 @@ This repository uses a pragmatic, small-team-friendly versioning approach:
 
 **Tags are the source of truth.**
 
-Current public baseline: `v0.1.0-alpha.2`
+Current public baseline: `v0.1.0-alpha.15`
+
+Current development focus:
+- technical stabilization of citation and bibliography mechanics
+- IEEE alpha hardening completed in `v0.1.0-alpha.15`
+- persistent citation state and document resync reliability
 
 ---
 
@@ -57,6 +62,7 @@ No known showstoppers. Errors are handled gracefully (no UI hangs, clear message
 Scope:
 - Config / credentials flow implemented and stable enough for daily use
 - APA citation style implemented
+- IEEE technical alpha support introduced for numeric citation processing
 - Picker / PowerPoint COM may still show intermittent issues
 
 Notes:
@@ -109,7 +115,7 @@ Scope (no new citation styles):
 - Refactor `zotero_config.py` into a constructor/factory with validation
 
 Gate:
-- The style engine must exist before adding new citation styles.
+- The style engine should exist before promoting additional citation styles beyond alpha-level support.
 
 ---
 
@@ -126,18 +132,19 @@ and maintainability.
   - Shared citation style engine introduced
   - `zotero_config.py` refactored into constructor/factory with validation
   - Deduplicated logic across citation styles
-- Once Phase 1 goals are met, new styles (IEEE/Chicago/Harvard) may be
-  introduced (Phase 2) following alpha→beta→rc→stable cycles.
+- Once Phase 1 goals are met, additional styles and style hardening
+  (Chicago/Harvard/MLA and further IEEE validation) may continue
+  following alpha→beta→rc→stable cycles.
 
 These architecture refactors may span multiple pre-releases
 (e.g. `v0.1.1-alpha`, `v0.1.2-beta`) and do not require delaying
 smaller bugfix patches in Phase 0.
 
-### Phase 2 — New citation styles (each is a MINOR bump)
+### Phase 2 — Citation style stabilization (each major style is a MINOR bump)
 
 Each style is treated as a major milestone.
 
-- `v0.2.0` — IEEE
+- `v0.2.0` — IEEE stabilization after alpha-level technical support
 - `v0.3.0` — Chicago
 - `v0.4.0` — Harvard
 
@@ -194,3 +201,42 @@ This section documents verified fixes that affected runtime behavior.
 **Related tags**
 - Documentation added in `v0.1.0-alpha.1`
 - Versioning and coding standards baseline in `v0.1.0-alpha.2`
+
+### v0.1.0-alpha.15 — IEEE citation state and bibliography renumbering
+
+**Scope**
+- Technical IEEE blocker fix
+- No general style-engine refactor
+- No broad citation-style matrix changes
+
+**Symptoms fixed**
+- First IEEE citation inserted correctly as `[1]`, but follow-up citations could be inserted again as `[1]`
+- Manual bibliography update could lose visible IEEE citations
+- Cleanup could report no citations although visible `[n]` citations remained
+- Late bibliography anchor setup could fail to rebuild the IEEE bibliography
+- IEEE bibliography entries could show duplicate labels such as `[1] [1] ...`
+- Inserting a new IEEE citation before existing citations did not renumber following citations correctly
+
+**Root cause**
+- IEEE initially used visible placeholders such as `⟦zp:KEY⟧`.
+- These placeholders were replaced by visible numeric citations (`[1]`, `[2]`, ...).
+- After replacement, the permanently reconstructable citation state was lost.
+- IEEE numbering was based on placeholder scan order instead of persisted citation metadata and visible document order.
+- Zotero returned IEEE bibliography entries with their own local numeric label, which conflicted with document-level numbering.
+
+**Resolution**
+- Persist IEEE citations in PowerPoint shape tags (`ZP_CITES`).
+- Build IEEE numbering from stored cite records.
+- Sort IEEE cite records by visible text position within each shape.
+- Renumber visible citations and stored metadata together.
+- Normalize Zotero-provided IEEE bibliography labels before applying document-level numbering.
+- Support manual bibliography update, cleanup, and late bibliography anchor setup.
+- Disable bibliography bullet formatting when writing entries.
+
+**Manual test result**
+- IEEE citations are numbered consecutively.
+- Inserting a citation before existing citations renumbers following citations.
+- Bibliography updates automatically and manually without losing entries.
+- Zotero-provided IEEE labels are normalized to avoid duplicate numbering.
+- Cleanup after partial and full deletion works.
+- Late bibliography anchor setup rebuilds the IEEE bibliography.

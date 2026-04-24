@@ -97,6 +97,17 @@ Rules:
 Minimum requirement before adding the next style:
 - style engine exists and is used by APA
 
+### Persistent citation state
+
+Citation styles must not rely only on visible text.
+
+Rules:
+- Every inserted citation must have reconstructable internal metadata.
+- Cleanup and bibliography rebuilds must derive keys from stored citation state.
+- If a style rewrites visible citation text, it must update stored cite metadata in the same operation.
+- Numeric styles such as IEEE must build numbering from document order, not from temporary placeholders only.
+- Bibliography labels returned by external formatters may need normalization before applying document-level numbering.
+
 ---
 
 ## 6) Tests
@@ -122,7 +133,8 @@ Minimum requirement before adding the next style:
 Certain coding quality rules map to versioning maturity levels:
 
 - **Alpha phases (`v0.x.0-alpha.N`):**
-  - English comments and docstrings
+  - English comments and docstrings are the target for new or touched code
+  - Existing non-English comments may still exist until the beta quality gate
   - Basic error handling with specific exceptions
   - Avoid obvious duplication (especially in citation style logic)
   - Config logic in one clearly named module

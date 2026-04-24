@@ -108,6 +108,50 @@ Important:
 
 ---
 
+## IEEE numbering or bibliography mismatch
+
+### Symptoms
+
+- A second IEEE citation is inserted as `[1]` instead of `[2]`
+- Manual bibliography update removes IEEE entries
+- Cleanup reports no citations although visible `[n]` citations remain
+- Bibliography entries show duplicate labels such as `[1] [1] ...`
+- Inserting a citation before existing IEEE citations does not renumber following citations
+
+### Root cause
+
+IEEE citations require persistent citation metadata in PowerPoint shape tags (`ZP_CITES`).
+
+Visible `[n]` text alone is not enough to reconstruct the Zotero item key. If the stored citation metadata is missing or stale, cleanup and bibliography rebuilds cannot reliably detect the citation.
+
+### Expected behavior
+
+- IEEE insert stores the citation key and visible cite text in `ZP_CITES`.
+- Renumbering updates both the visible text and the stored cite metadata.
+- Bibliography numbering is generated from document-level numbering.
+- Zotero-provided IEEE labels are stripped before applying document numbering.
+
+### Recommended checks
+
+1. Run a syntax check:
+   ```powershell
+   python -m py_compile zotero_picker_ppt.py
+   ```
+
+2. Use a new PowerPoint file for IEEE retests.
+
+   Old alpha files may contain visible `[n]` citations without stored citation metadata.
+
+3. Retest:
+   - insert `[1]`
+   - insert `[2]`
+   - insert a new citation before `[1]`
+   - verify renumbering to `[1]`, `[2]`, `[3]`
+   - update bibliography manually
+   - run cleanup after deleting one citation
+
+---
+
 ## No citation inserted / text appears in the wrong place
 
 ### Symptoms

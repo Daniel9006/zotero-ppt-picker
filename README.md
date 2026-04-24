@@ -117,6 +117,33 @@ This method is intended for advanced users only.
    ```
 5. Select a reference and insert it
 
+To create or update a bibliography:
+
+1. Select or create a text box for the bibliography.
+2. Click **Bibliographie-Ziel festlegen** (set bibliography target).
+3. Insert citations.
+4. Use **Bibliographie einfügen/aktualisieren** (insert/update bibliography) to rebuild the bibliography manually.
+5. Use **Bereinigen** (cleanup) after deleting citations from slides.
+
+---
+
+## Citation styles
+
+The picker currently provides selectable citation styles with different validation status.
+
+Current alpha status:
+
+- APA: primary baseline style
+- IEEE: technical alpha support
+  - numeric in-text citations (`[1]`, `[2]`, ...)
+  - automatic renumbering in visible document order
+  - bibliography update with IEEE numbering
+  - cleanup after citation deletion
+  - bibliography rebuild after setting the target later
+- Chicago Author-Date, Harvard, MLA: selectable, but not yet fully validated as stable styles
+
+IEEE citations are persisted internally via PowerPoint shape tags. Visible numeric citations are not sufficient on their own; cleanup and bibliography updates depend on the stored citation metadata.
+
 ---
 
 ## Troubleshooting

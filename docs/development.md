@@ -11,14 +11,18 @@ zotero-ppt-picker/
 ├── zotero_picker_ppt.py      # main application entry point
 ├── config/
 │   ├── __init__.py
-│   └── zotero_config.py      # configuration & credential handling
-├── test_zotero_config.py     # Standalone test for config & credential dialog
+│   └── zotero_config.py      # configuration and credential handling
+├── docs/
+│   ├── development.md        # developer and architecture documentation
+│   ├── debugging.md          # debugging notes and known runtime issues
+│   └── mac_linux.md          # macOS / Linux notes and limitations
+├── test_zotero_config.py     # standalone test for config and credential dialog
 ├── requirements.txt          # Python dependencies
-├── README.md                 # User documentation (Windows, usage, credentials)
-├── README_mac_linux.md       # macOS / Linux setup notes
-├── README_dev.md             # Developer & architecture documentation
-├── TEAM.md                   # Team / collaboration notes
-├── .env                      # Optional local overrides (never commit secrets)
+├── README.md                 # user documentation (installation, configuration, usage)
+├── TEAM.md                   # team and collaboration notes
+├── VERSIONING.md             # versioning rules and release ladder
+├── CODING_STANDARDS.md       # coding rules and quality expectations
+├── .env                      # optional local overrides (never commit secrets)
 └── .gitignore
 ```
 
@@ -32,20 +36,21 @@ zotero-ppt-picker/
 
 ## Configuration architecture
 
-Credential loading priority:
+Credential resolution:
 
-1. Local user config file  
-   - Platform-specific location (via `platformdirs`)
+1. Load local user config file, if present  
+   - Platform-specific user config location
    - Stored as JSON
-2. Environment variables  
+2. Apply environment variable overrides  
    - `ZOTERO_API_KEY`
    - `ZOTERO_LIBRARY_ID`
    - `ZOTERO_LIBRARY_TYPE`
-3. Interactive GUI prompt (Tkinter)
+3. Open interactive GUI prompt (Tkinter) if required values are still missing or invalid
 
 This ensures:
 - no secrets in the repository
 - per-user configuration
+- optional environment-based overrides
 - deterministic behavior
 
 ⚠️ Files containing real Zotero API keys must never be committed.  
@@ -77,13 +82,40 @@ Errors are raised as `ConfigError` and must be handled by the caller.
 
 ---
 
+## Citation state model
+
+Citations are persisted in PowerPoint shape tags using `ZP_CITES`.
+
+This internal citation state is required because visible citation text alone is not sufficient for deterministic cleanup, bibliography rebuilds, and style-specific renumbering.
+
+Stored citation records contain at least:
+- `key`: Zotero item key
+- `cite`: currently visible citation text
+- optional style-specific metadata such as `sig` or `style`
+
+Important rules:
+- Visible citation text and stored cite metadata must be updated together.
+- Cleanup must derive bibliography keys from stored citation metadata.
+- Numeric styles such as IEEE must not rely only on visible placeholder scans.
+- IEEE numbering is built from persisted cite records sorted by visible document order.
+- Bibliography labels returned by external formatters may need normalization before applying document-level numbering.
+
+---
+
 ## Testing
 
 Recommended local tests:
 
+```powershell
+# Windows: force credential dialog
+Remove-Item "$env:APPDATA\ZoteroPowerPoint\config.json" -ErrorAction SilentlyContinue
+
+python test_zotero_config.py
+```
+
 ```bash
-# force credential dialog
-rm ~/.config/ZoteroPowerPoint/config.json
+# macOS / Linux: force credential dialog
+rm -f ~/.config/ZoteroPowerPoint/config.json
 
 python test_zotero_config.py
 ```
@@ -120,10 +152,17 @@ Completion criteria:
 - No duplicated logic per citation style
 - Config resolution follows a deterministic pipeline
 
-### Phase 2 – New citation styles
-Once Phase 1 is done:
-- Add IEEE style (alpha→beta→stable)
-- Add Chicago style (alpha→beta→stable)
-- Add Harvard style (alpha→beta→stable)
+### Phase 2 – Citation styles
+
+IEEE has been introduced as an alpha-level technical implementation before the full style-engine refactor.
+
+Current status:
+- IEEE uses persistent citation records in PowerPoint shape tags.
+- IEEE renumbering is based on visible document order.
+- Bibliography rebuild, cleanup, and late bibliography anchor setup are supported.
+
+Remaining architecture goal:
+- Move APA / IEEE / future styles into a shared style engine.
+- Reduce style-specific branching in `zotero_picker_ppt.py`.
 
 See `VERSIONING.md` for details on versioning cycles.
