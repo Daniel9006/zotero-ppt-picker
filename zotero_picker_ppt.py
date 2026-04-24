@@ -4,6 +4,7 @@ import sys
 import json
 import html
 import uuid
+import time
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -555,30 +556,98 @@ def renormalize_all_sig_groups():
         for s in sigs:
             normalize_sig_group(s)
 
-def _safe_get(url, *, headers=None, params=None, timeout=HTTP_TIMEOUT, retries=2):
+HTTP_RETRY_STATUS = {429, 500, 502, 503, 504}
+HTTP_TRANSIENT_EXC = (requests.Timeout, requests.ConnectionError)
+
+def _retry_delay(resp, attempt: int) -> float:
     """
-    Requests GET mit Retry bei 5xx (Zotero sporadisch).
-    Wirft erst nach Retries eine Exception.
+    Beachtet serverseitige Retry-Hinweise, sonst einfacher Backoff.
+    """
+    for header in ("Retry-After", "Backoff"):
+        raw = (resp.headers.get(header) or "").strip()
+        if raw:
+            try:
+                return max(0.0, float(raw))
+            except ValueError:
+                pass
+    return min(0.5 * (2 ** attempt), 8.0)
+
+
+def _safe_get(url, *, headers=None, params=None, timeout=HTTP_TIMEOUT, retries=3, context=""):
+    """
+    Robuster GET mit Retry für transiente Netzwerk-/API-Fehler.
+
+    Retry bei:
+    - Timeout / ConnectionError
+    - HTTP 429 / 500 / 502 / 503 / 504
+
+    Kein Retry bei:
+    - 400 / 401 / 403 / 404 etc.
     """
     last_exc = None
+
     for attempt in range(retries + 1):
         try:
-            r = requests.get(url, headers=headers, params=params, timeout=timeout)          
-            _debug(f"HTTP GET {r.status_code}: {r.url}")
-            
-            # bei 5xx -> Retry
-            if r.status_code in (500, 502, 503, 504):
-                last_exc = requests.HTTPError(f"{r.status_code} Server Error for url: {r.url}")
-                _debug(f"HTTP RETRY wegen {r.status_code} (attempt {attempt+1}/{retries+1})")
+            r = requests.get(url, headers=headers, params=params, timeout=timeout)
+            _debug(
+                f"HTTP GET status={r.status_code} "
+                f"attempt={attempt + 1}/{retries + 1} "
+                f"context={context} url={r.url}"
+            )
+
+            if r.status_code in HTTP_RETRY_STATUS:
+                if attempt >= retries:
+                    raise requests.HTTPError(
+                        f"{r.status_code} HTTP error for url: {r.url}",
+                        response=r
+                    )
+
+                delay = _retry_delay(r, attempt)
+                _debug(
+                    f"HTTP RETRY status={r.status_code} "
+                    f"delay={delay:.1f}s "
+                    f"attempt={attempt + 1}/{retries + 1} "
+                    f"context={context}"
+                )
+                time.sleep(delay)
                 continue
+
             r.raise_for_status()
             return r
-        except requests.RequestException as e:
-            _debug(f"HTTP EXC (attempt {attempt+1}/{retries+1}): {e}")
+
+        except HTTP_TRANSIENT_EXC as e:
             last_exc = e
-            continue
-    _debug(f"HTTP FAIL nach Retries: {last_exc}")
-    raise last_exc
+
+            if attempt >= retries:
+                _debug(
+                    f"HTTP FAIL exc={type(e).__name__} "
+                    f"attempt={attempt + 1}/{retries + 1} "
+                    f"context={context}: {e}"
+                )
+                raise
+
+            delay = min(0.5 * (2 ** attempt), 8.0)
+            _debug(
+                f"HTTP RETRY exc={type(e).__name__} "
+                f"delay={delay:.1f}s "
+                f"attempt={attempt + 1}/{retries + 1} "
+                f"context={context}: {e}"
+            )
+            time.sleep(delay)
+
+        except requests.RequestException as e:
+            _debug(
+                f"HTTP FAIL exc={type(e).__name__} "
+                f"attempt={attempt + 1}/{retries + 1} "
+                f"context={context}: {e}"
+            )
+            raise
+
+    raise last_exc or RuntimeError(f"HTTP GET failed without specific exception: {url}")
+
+class BibliographyFetchError(RuntimeError):
+    """Bibliographieeintrag konnte über die Zotero Web API nicht geladen werden."""
+    pass
 # =========================================================
 
 
@@ -1106,23 +1175,36 @@ def get_bibliography_entry_webapi(api_key, library_id, library_type, item_key, s
         "Zotero-API-Version": "3",
         "Accept": f"text/x-bibliography; style={style}",
     }
+
     candidates = [
         (f"{base}/items", {"itemKey": item_key, "format": "bib", "style": style}),
         (f"{base}/items/{item_key}", {"format": "bib", "style": style}),
     ]
+
+    last_error = None
+
     for url, params in candidates:
         try:
-            r = _safe_get(url, headers=headers, params=params, timeout=HTTP_TIMEOUT, retries=2)
-        except Exception:
-            # probiere nächsten Candidate / später JSON-Fallback
+            r = _safe_get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=HTTP_TIMEOUT,
+                retries=3,
+                context=f"bib-html key={item_key}"
+            )
+        except requests.RequestException as e:
+            last_error = f"{type(e).__name__}: {e}"
             continue
 
         ct = (r.headers.get("Content-Type", "") or "").lower()
-        txt = r.text
+        txt = r.text or ""
 
         looks_like_json = txt.lstrip().startswith("{") or txt.lstrip().startswith("[")
-        if (("text/html" in ct) or ("text/x-bibliography" in ct)) and not looks_like_json:
+        if txt.strip() and (("text/html" in ct) or ("text/x-bibliography" in ct)) and not looks_like_json:
             return html_to_text(txt)
+
+        last_error = f"unexpected bibliography response content-type={ct!r}"
 
     try:
         raw = _safe_get(
@@ -1133,23 +1215,43 @@ def get_bibliography_entry_webapi(api_key, library_id, library_type, item_key, s
                 "Accept": "application/json",
             },
             timeout=HTTP_TIMEOUT,
-            retries=2
+            retries=3,
+            context=f"bib-json key={item_key}"
         )
-    except Exception as e:
-        # harter Fallback (minimal)
-        return f"[Bibliographie nicht verfügbar: {item_key}]"
+    except requests.RequestException as e:
+        raise BibliographyFetchError(
+            f"Bibliographie für {item_key} konnte nicht geladen werden ({last_error or f'{type(e).__name__}: {e}'})"
+        ) from e
 
-    data = raw.json()
+    try:
+        data = raw.json()
+    except ValueError as e:
+        raise BibliographyFetchError(
+            f"Bibliographie für {item_key} konnte nicht geladen werden (invalid JSON response)"
+        ) from e
+
     if isinstance(data, list) and data:
         data = data[0]
+
+    if not isinstance(data, dict):
+        raise BibliographyFetchError(
+            f"Bibliographie für {item_key} konnte nicht geladen werden (unexpected JSON shape)"
+        )
+
     d = data.get("data", {})
     title = d.get("title") or "[o. T.]"
     creators = d.get("creators") or []
-    first = creators[0].get("lastName") or creators[0].get("name") if creators else ""
+    first = (creators[0].get("lastName") or creators[0].get("name")) if creators else ""
     m = re.search(r"(\d{4})", d.get("date") or "")
     year = m.group(1) if m else ""
     url = d.get("url") or ""
     pieces = [p for p in [first, f"({year})" if year else "", title, url] if p]
+
+    if not pieces:
+        raise BibliographyFetchError(
+            f"Bibliographie für {item_key} konnte nicht geladen werden (empty fallback data)"
+        )
+
     return " ".join(pieces)
 # =========================================================
 
@@ -1194,10 +1296,9 @@ def _try_fit_entries_into_shape(shape, entries, preferred_size=PREF_FONT_SIZE, m
 
 def update_bibliography(keys, style, api_key, library_id, library_type, numbering=None):
     _debug(f"Bib update: keys={len(keys)} style={style}")
-    if not keys:
-        return
 
-    # 1) Anchors holen (COM)
+    # 1) Resolve anchors first (COM), even for an empty bibliography,
+    #    so stale bibliography text can be cleared reliably.
     with com_context("update_bibliography.resolve_anchors"):
         anchors = _resolve_anchor_list()
         _debug(f"Bib update: anchors={len(anchors)}")
@@ -1217,43 +1318,92 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
         if not anchors:
             return
 
-    # 2) Entries via Web-API (kein COM-Lock halten!)
+        # 1b) If there are no keys, clear all bibliography anchor fields and stop.
+        if not keys:
+            for slide, shape in anchors:
+                try:
+                    shape.TextFrame.TextRange.Text = ""
+                except Exception:
+                    pass
+            _debug(f"Bib cleared: anchors={len(anchors)} style={style}")
+            return
+
+    # 2) Build entries via Web API (do not hold COM lock)
     entries = []
+    failures = []
+
     for k in keys:
         try:
-            entry = get_bibliography_entry_webapi(api_key, library_id, library_type, k, style)
-        except Exception:
-            entry = f"[Bibliographie nicht verfügbar: {k}]"
-        if numbering and k in numbering:
-            entries.append(f"[{numbering[k]}] {entry}")
-        else:
-            entries.append(entry)
+            entry = get_bibliography_entry_webapi(
+                api_key,
+                library_id,
+                library_type,
+                k,
+                style
+            )
+            if numbering and k in numbering:
+                entries.append(f"[{numbering[k]}] {entry}")
+            else:
+                entries.append(entry)
+        except BibliographyFetchError as e:
+            failures.append((k, str(e)))
+
+    if failures:
+        preview = "; ".join(f"{k}: {msg}" for k, msg in failures[:3])
+        _debug(f"Bib update ABORT: failures={len(failures)} | {preview}")
+        raise RuntimeError(
+            f"Bibliographie nicht aktualisiert: {len(failures)} Einträge konnten nicht geladen werden. "
+            f"Erste Fehler: {preview}"
+        )
 
     remaining = entries[:]
-    _debug(f"Bib entries erzeugt: {len(entries)}")
+    _debug(f"Bib entries generated: {len(entries)}")
 
-    # 3) Schreiben + Paginierung (COM)
+    # 3) Write and paginate (COM)
     with com_context("update_bibliography.write_and_paginate"):
-        # Anchors im selben COM-Context neu holen, damit wir garantiert gültige COM-Objekte haben
+        # Resolve anchors again in the same COM context to ensure valid COM objects
         anchors = _resolve_anchor_list()
         if not anchors:
             return
 
         for slide, shape in anchors:
-            if not remaining:
-                break
-            used, _ = _try_fit_entries_into_shape(shape, remaining)
-            remaining = remaining[used:]
+            if remaining:
+                used, _ = _try_fit_entries_into_shape(shape, remaining)
+
+                if used <= 0:
+                    _debug("Bib write ABORT: no entries could be placed on existing anchor")
+                    raise RuntimeError(
+                        f"Bibliographie nicht vollständig geschrieben: {len(remaining)} Einträge konnten nicht platziert werden."
+                    )
+
+                remaining = remaining[used:]
+            else:
+                try:
+                    shape.TextFrame.TextRange.Text = ""
+                except Exception:
+                    pass
 
         while remaining:
             src_slide, src_shape = anchors[-1]
             new_slide, new_shape = _duplicate_anchor_to_new_slide_like(src_slide, src_shape)
             if new_shape is None or not getattr(new_shape, "HasTextFrame", False):
-                _debug("Bib pagination ABORT: new_shape ungültig oder ohne TextFrame")
-                break
+                _debug("Bib pagination ABORT: new_shape invalid or without TextFrame")
+                raise RuntimeError(
+                    f"Bibliographie nicht vollständig geschrieben: {len(remaining)} Einträge konnten nicht platziert werden."
+                )
+
             anchors.append((new_slide, new_shape))
             used, _ = _try_fit_entries_into_shape(new_shape, remaining)
+
+            if used <= 0:
+                _debug("Bib pagination ABORT: no entries could be placed on new anchor")
+                raise RuntimeError(
+                    f"Bibliographie nicht vollständig geschrieben: {len(remaining)} Einträge konnten nicht platziert werden."
+                )
+
             remaining = remaining[used:]
+
+    _debug(f"Bib update OK: entries={len(entries)} anchors={len(anchors)} style={style}")
 # =========================================================
 
 
@@ -1855,53 +2005,56 @@ class PickerApp:
 
         def _do_set():
             def _work():
-                # Alles was COM anfässt, soll im Worker laufen (mit com_context/run_in_thread Schutz)
+                # 1) Set the anchor
+                # If this fails, keep the window open so the user can correct the selection directly.
                 set_bibliography_anchor_from_selection()
 
                 state = load_doc_state()
                 state["bib_keys"] = resync_bibliography_keys_from_document(state)
-
                 anchor_count = len(_resolve_anchor_list())
-
-                # cfg laden (kein COM, aber kann UI-Dialog triggern -> besser vorher im UI-Thread klären)
-                try:
-                    cfg = get_cfg(allow_prompt=False, parent=self.root)
-                except RuntimeError:
-                    # UI-Fehler zurück
-                    self.root.after(0, lambda: show_missing_zotero_config(self.root))
-                    return
-
                 style = state.get("style", DEFAULT_STYLE)
 
-                if state.get("bib_keys"):
-                    update_bibliography(
-                        state.get("bib_keys", []),
-                        style,
-                        cfg.api_key,
-                        cfg.library_id,
-                        cfg.library_type
-                    )
-                    self.root.after(
-                        0,
-                        lambda: self.set_status(
-                            f"Bibliographie-Ziel gesetzt. Gefundene Anker: {anchor_count} (Bibliographie aktualisiert)"
-                        )
-                    )
-                else:
-                    self.root.after(
-                        0,
-                        lambda: self.set_status(
-                            f"Bibliographie-Ziel gesetzt. Gefundene Anker: {anchor_count} (noch keine Zitate)"
-                        )
-                    )
-
-                # UI-State zurück im UI-Thread setzen
                 def _finish_ui():
                     self.state = state
                     self._anchor_win = None
-                    win.destroy()
+                    try:
+                        if win.winfo_exists():
+                            win.destroy()
+                    except Exception:
+                        pass
 
-                self.root.after(0, _finish_ui)
+                try:
+                    try:
+                        cfg = get_cfg(allow_prompt=False, parent=self.root)
+                    except RuntimeError:
+                        self.root.after(0, lambda: show_missing_zotero_config(self.root))
+                        return
+
+                    if state.get("bib_keys"):
+                        update_bibliography(
+                            state.get("bib_keys", []),
+                            style,
+                            cfg.api_key,
+                            cfg.library_id,
+                            cfg.library_type
+                        )
+                        self.root.after(
+                            0,
+                            lambda: self.set_status(
+                                f"Bibliographie-Ziel gesetzt. Gefundene Anker: {anchor_count} (Bibliographie aktualisiert)"
+                            )
+                        )
+                    else:
+                        self.root.after(
+                            0,
+                            lambda: self.set_status(
+                                f"Bibliographie-Ziel gesetzt. Gefundene Anker: {anchor_count} (noch keine Zitate)"
+                            )
+                        )
+                finally:
+                    # Once the anchor was set successfully, always clean up the UI state,
+                    # even if the bibliography update fails.
+                    self.root.after(0, _finish_ui)
 
             run_in_thread(
                 "SetBibAnchor",
@@ -1977,28 +2130,30 @@ class PickerApp:
             state["bib_keys"] = resync_bibliography_keys_from_document(state)
             keys = state.get("bib_keys", [])
 
-            if not keys:
-                self.root.after(0, lambda: self.set_status("Bibliographie leer."))
-                return
-
             if not has_bibliography_anchor():
-                self.root.after(
-                    0,
-                    lambda: messagebox.showerror(
-                        "Fehlendes Ziel",
-                        "Kein Bibliographie-Ziel gesetzt.\n"
-                        "Bitte gehe zur Bibliographie-Folie, wähle das Textfeld und klicke "
-                        "„Bibliographie-Ziel festlegen“.",
-                        parent=self.root
+                if not keys:
+                    self.root.after(0, lambda: self.set_status("Bibliographie leer."))
+                else:
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Fehlendes Ziel",
+                            "Kein Bibliographie-Ziel gesetzt.\n"
+                            "Bitte gehe zur Bibliographie-Folie, wähle das Textfeld und klicke "
+                            "„Bibliographie-Ziel festlegen“.",
+                            parent=self.root
+                        )
                     )
-                )
                 return
 
             update_bibliography(keys, style, cfg.api_key, cfg.library_id, cfg.library_type)
 
             def _finish_ui():
                 self.state = state
-                self.set_status(f"Bibliographie aktualisiert ({style}).")
+                if keys:
+                    self.set_status(f"Bibliographie aktualisiert ({style}).")
+                else:
+                    self.set_status("Bibliographie geleert.")
 
             self.root.after(0, _finish_ui)
 
