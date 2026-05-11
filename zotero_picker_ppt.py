@@ -1968,7 +1968,11 @@ class PickerApp:
     def on_style_change(self, event=None):
         self.state["style"] = label_to_code(self.style_var.get())
         save_doc_state(self.state)
-        self.set_status(f"Stil gesetzt: {self.style_var.get()} ({self.state['style']})")
+        self.set_status(f"Stil gesetzt: {self.style_var.get()}")
+        _debug(
+            f"Style set: display_name={self.style_var.get()!r}, "
+            f"style_id={self.state['style']!r}"
+        )
 
     def on_key(self, event=None):
         if self.z is None:

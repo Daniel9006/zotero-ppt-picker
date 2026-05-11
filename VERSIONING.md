@@ -240,3 +240,22 @@ This section documents verified fixes that affected runtime behavior.
 - Zotero-provided IEEE labels are normalized to avoid duplicate numbering.
 - Cleanup after partial and full deletion works.
 - Late bibliography anchor setup rebuilds the IEEE bibliography.
+
+### v0.1.0-alpha.16 – Base style matrix validation and UI label polish
+
+This alpha release documents the completed base citation style validation for
+the current supported styles and improves user-facing style status messages.
+
+Changes:
+- documented the base citation style matrix results in `docs/development.md`
+- confirmed APA regression status
+- confirmed IEEE as technically alpha-stable and broadly plausible
+- confirmed Chicago Author-Date and Harvard as passed for the base alpha scope
+- documented MLA as technically passed but requiring style-specific in-text rendering follow-up
+- documented locator/detail references as future work
+- removed internal citation style IDs from user-facing status messages
+
+Notes:
+- internal style IDs remain available in debug logs
+- locator support for pages, chapters, clauses, figures, and tables is not part of this release
+- MLA in-text rendering remains a follow-up topic 

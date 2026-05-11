@@ -102,6 +102,40 @@ Important rules:
 
 ---
 
+## Citation style validation status
+
+As of `v0.1.0-alpha.15`, the base citation style matrix has been tested manually.
+
+The scope of this validation was limited to the current alpha base functionality:
+
+- citation insertion
+- automatic bibliography update
+- manual bibliography update
+- cleanup after partial citation deletion
+- full citation deletion and bibliography clearing
+- late bibliography anchor setup
+- missing bibliography anchor handling
+- rough stylistic plausibility
+
+Locator and detail references such as pages, chapters, clauses, figures, and tables were not part of this validation.
+
+| Style | Status | Notes |
+| --- | --- | --- |
+| APA | Passed | Regression test passed. No regression found after IEEE and bibliography changes. |
+| IEEE | Passed | Technically alpha-stable and broadly IEEE-plausible. Locator-like manual additions such as `[1, Clause 1]` are not cleanup-stable yet. |
+| Chicago Author-Date | Passed | Technically stable and broadly plausible for the base alpha scope. |
+| Harvard | Passed | Technically stable and broadly plausible. The internal style ID `harvard1` should not be shown in user-facing status messages. |
+| MLA | Technically passed, stylistically auffällig | Core mechanics work, but in-text citations are currently rendered in an author-date-like pattern. MLA-specific in-text rendering needs follow-up. |
+
+Open follow-up topics:
+
+1. MLA in-text rendering needs style-specific correction.
+2. Locator/detail reference support must be designed as a separate feature block.
+3. User-facing style status messages should hide internal style IDs.
+4. Deeper CSL/style-engine validation remains future work.
+
+eingefügt, ---
+
 ## Testing
 
 Recommended local tests:
