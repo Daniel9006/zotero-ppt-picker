@@ -122,8 +122,10 @@ To create or update a bibliography:
 1. Select or create a text box for the bibliography.
 2. Click **Bibliographie-Ziel festlegen** (set bibliography target).
 3. Insert citations.
-4. Use **Bibliographie einfügen/aktualisieren** (insert/update bibliography) to rebuild the bibliography manually.
-5. Use **Bereinigen** (cleanup) after deleting citations from slides.
+4. Use **Bibliographie aktualisieren** (update bibliography) to rebuild the bibliography manually.
+5. Use **Zitate bereinigen** (clean up citations) after deleting citations from slides.
+
+Bibliography status messages use display style names such as `Harvard` or `Chicago Author-Date`, not internal style IDs.
 
 ---
 
@@ -131,16 +133,24 @@ To create or update a bibliography:
 
 The picker currently provides selectable citation styles with different validation status.
 
-Current alpha status:
+Current alpha status as of `v0.1.0-alpha.17`:
 
-- APA: primary baseline style
-- IEEE: technical alpha support
+- APA: passed in current alpha scope
+- IEEE: passed in current alpha scope
   - numeric in-text citations (`[1]`, `[2]`, ...)
   - automatic renumbering in visible document order
   - bibliography update with IEEE numbering
   - cleanup after citation deletion
   - bibliography rebuild after setting the target later
-- Chicago Author-Date, Harvard, MLA: selectable, but not yet fully validated as stable styles
+- Chicago Author-Date: passed in current alpha scope
+- Harvard: passed in current alpha scope
+- MLA: passed in current alpha scope with minimal MLA-specific in-text rendering
+  - new MLA citations render as minimal parenthetical labels, for example `(Author)`, `(Author and Author)`, or `(Corporate Author)`
+  - locator/page support is not included
+  - existing MLA citations inserted with older alpha versions are not migrated automatically
+  - MLA disambiguation for identical visible labels is not implemented yet
+
+Locator/detail references such as pages, chapters, clauses, figures, and tables are not part of the current alpha scope.
 
 IEEE citations are persisted internally via PowerPoint shape tags. Visible numeric citations are not sufficient on their own; cleanup and bibliography updates depend on the stored citation metadata.
 
