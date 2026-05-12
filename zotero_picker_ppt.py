@@ -798,6 +798,34 @@ def _format_authoryear_base_from_item(item):
     year = m.group(1) if m else ""
     return f"({author}, {year})" if year else f"({author}, n.d.)"
 
+def _format_mla_base_from_item(item):
+    """Return a minimal MLA-plausible parenthetical citation without locator support."""
+    data = item.get("data", {})
+    creators = data.get("creators", []) or []
+
+    names = []
+    for c in creators:
+        last = c.get("lastName") or c.get("name") or ""
+        if last:
+            names.append(last)
+
+    if names:
+        if len(names) == 1:
+            label = names[0]
+        elif len(names) == 2:
+            label = f"{names[0]} and {names[1]}"
+        else:
+            label = f"{names[0]} et al."
+    else:
+        label = data.get("shortTitle") or data.get("title") or "o. T."
+        label = re.sub(r"\s+", " ", label).strip()
+        if not label:
+            label = "o. T."
+        if len(label) > 60:
+            label = label[:57].rstrip() + "..."
+
+    return f"({label})"
+
 # LEGACY/OPTIONAL: Zero-width Marker (aktuell nicht verwendet in APA/Harvard; evtl. später wieder nützlich)
 def _disambiguate_authoryear(base, existing_cites):
     """macht aus (Müller, 2020) -> (Müller, 2020a/b/...) falls nötig"""
@@ -1006,7 +1034,7 @@ def get_status_summary():
     else:
         anchor_txt = "NICHT gesetzt"
 
-    return f"Stil: {style.upper()} | Zitate: {len(keys)} | Bibliographie-Ziel: {anchor_txt}"
+    return f"Stil: {code_to_label(style)} | Zitate: {len(keys)} | Bibliographie-Ziel: {anchor_txt}"
 
 def _is_title_placeholder(shp) -> bool:
     """True, wenn Shape sehr wahrscheinlich ein Titel-Placeholder ist."""
@@ -1891,9 +1919,9 @@ class PickerApp:
 
         buttons = [
             ("Zitation einfügen", self.on_insert_click),
-            ("Bibliographie einfügen/aktualisieren", self.on_bib_update),
+            ("Bibliographie aktualisieren", self.on_bib_update),
             ("Bibliographie-Ziel festlegen", self.on_set_anchor),
-            ("Bereinigen", self.on_cleanup),
+            ("Zitate bereinigen", self.on_cleanup),
         ]
 
         for i, (label, cmd) in enumerate(buttons):
@@ -2113,10 +2141,13 @@ class PickerApp:
 
             if style_local in ("apa", "harvard1") and key in by_key:
                 cite = by_key[key].get("cite") or _format_authoryear_base_from_item(it)
-                sig  = by_key[key].get("sig")  or _make_sig(it)
+                sig = by_key[key].get("sig") or _make_sig(it)
             else:
                 sig = _make_sig(it)
-                cite = _format_authoryear_base_from_item(it)
+                if style_local == "mla":
+                    cite = _format_mla_base_from_item(it)
+                else:
+                    cite = _format_authoryear_base_from_item(it)
 
             # 3) Zitat an Cursorposition einfügen (hart: nur echter Cursor)
             shp = ppt_insert_text_at_cursor(cite)
@@ -2353,7 +2384,7 @@ class PickerApp:
             def _finish_ui():
                 self.state = state
                 if keys:
-                    self.set_status(f"Bibliographie aktualisiert ({style}).")
+                    self.set_status(f"Bibliographie aktualisiert ({code_to_label(style)}).")
                 else:
                     self.set_status("Bibliographie geleert.")
 

@@ -259,3 +259,31 @@ Notes:
 - internal style IDs remain available in debug logs
 - locator support for pages, chapters, clauses, figures, and tables is not part of this release
 - MLA in-text rendering remains a follow-up topic 
+
+### v0.1.0-alpha.17 – MLA in-text rendering fix
+
+**Scope**
+- Minimal MLA-specific in-text citation rendering fix
+- Small user-facing bibliography UI label polish
+- No COM, threading, anchor, or citation-state refactor
+
+**Symptoms fixed**
+- MLA in-text citations were technically stable but rendered in an author-date-like pattern, e.g. `(Author, 2024)` or `(Author, n.d.)`.
+- Bibliography update status messages could expose internal style IDs instead of display labels.
+
+**Resolution**
+- Added a minimal MLA-specific in-text formatter for new inserts.
+- MLA citations now render as minimal parenthetical labels, e.g. `(Author)`, `(Author and Author)`, or `(Corporate Author)`.
+- Bibliography update status now uses display style names.
+- Bibliography and cleanup button labels were clarified.
+
+**Manual test result**
+- APA, IEEE, Chicago Author-Date, Harvard, and MLA were retested.
+- MLA insert, bibliography update, cleanup, and repeated manual bibliography refresh passed in the alpha scope.
+- MLA no longer renders new in-text citations as author-date citations.
+
+**Known limitations**
+- No locator/page support.
+- No full CSL/style-engine refactor.
+- Existing MLA citations inserted with older versions are not migrated automatically.
+- MLA disambiguation for identical visible labels is not implemented yet.

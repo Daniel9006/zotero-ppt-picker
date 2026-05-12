@@ -104,10 +104,9 @@ Important rules:
 
 ## Citation style validation status
 
-As of `v0.1.0-alpha.15`, the base citation style matrix has been tested manually.
+As of `v0.1.0-alpha.17`, the base citation style matrix has been retested manually.
 
 The scope of this validation was limited to the current alpha base functionality:
-
 - citation insertion
 - automatic bibliography update
 - manual bibliography update
@@ -124,17 +123,15 @@ Locator and detail references such as pages, chapters, clauses, figures, and tab
 | APA | Passed | Regression test passed. No regression found after IEEE and bibliography changes. |
 | IEEE | Passed | Technically alpha-stable and broadly IEEE-plausible. Locator-like manual additions such as `[1, Clause 1]` are not cleanup-stable yet. |
 | Chicago Author-Date | Passed | Technically stable and broadly plausible for the base alpha scope. |
-| Harvard | Passed | Technically stable and broadly plausible. The internal style ID `harvard1` should not be shown in user-facing status messages. |
-| MLA | Technically passed, stylistically auffällig | Core mechanics work, but in-text citations are currently rendered in an author-date-like pattern. MLA-specific in-text rendering needs follow-up. |
+| Harvard | Passed | Technically stable and broadly plausible for the base alpha scope. |
+| MLA | Passed in alpha scope | Technically stable and no longer rendered as author-date for new inserts. Uses minimal MLA-plausible parenthetical labels. Locator/page support and full CSL-style validation remain future work. |
 
 Open follow-up topics:
-
-1. MLA in-text rendering needs style-specific correction.
+1. MLA disambiguation for identical visible labels remains future work.
 2. Locator/detail reference support must be designed as a separate feature block.
-3. User-facing style status messages should hide internal style IDs.
-4. Deeper CSL/style-engine validation remains future work.
+3. Deeper CSL/style-engine validation remains future work.
 
-eingefügt, ---
+---
 
 ## Testing
 
