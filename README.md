@@ -120,15 +120,17 @@ This method is intended for advanced users only.
 
 To update citations and bibliography:
 
-1. Select or create a text box for the bibliography.
+1. Select or create a text box on a normal slide for the bibliography.
 2. Click **Bibliographie-Ziel festlegen** (set bibliography target).
-3. Insert citations.
+3. Insert citations on slides or in PowerPoint notes.
 4. Use **Dokument aktualisieren** (update document) as the primary maintenance workflow after editing or deleting citations.
 5. Use **Bibliographie neu schreiben** (rewrite bibliography) only when you want to rebuild the bibliography from the current stored citation state.
 
-Use **Dokument aktualisieren** after deleting citations or when citation numbering or bibliography contents should be synchronized again.
+Use **Dokument aktualisieren** after deleting citations or when citation numbering or bibliography contents should be synchronized again. This workflow scans citations on normal slides and in PowerPoint notes.
 
-Use **Bibliographie neu schreiben** when the citation state is already correct and only the bibliography text should be written again.
+Use **Bibliographie neu schreiben** when the citation state is already correct and only the bibliography text should be written again. The bibliography is built from citations found on slides and in notes.
+
+The bibliography target remains a normal slide text box. There is no separate notes bibliography mode.
 
 Bibliography status messages use display style names such as `Harvard` or `Chicago Author-Date`, not internal style IDs.
 
@@ -138,18 +140,19 @@ Bibliography status messages use display style names such as `Harvard` or `Chica
 
 The picker currently provides selectable citation styles at different validation levels.
 
-Current alpha status as of `v0.1.0-alpha.18`:
+Current alpha status as of `v0.1.0-alpha.19`:
 
-- APA: passed in current alpha scope
-- IEEE: passed in current alpha scope
+- APA: passed in current alpha scope, including slide and notes citations
+- IEEE: passed in current alpha scope, including slide and notes citations
   - numeric in-text citations (`[1]`, `[2]`, ...)
   - automatic renumbering in visible document order
+  - document order includes slide shapes first, then notes shapes for the same slide
   - bibliography update with IEEE numbering
   - document update after citation deletion
   - bibliography rebuild after setting the target later
-- Chicago Author-Date: passed in current alpha scope
-- Harvard: passed in current alpha scope
-- MLA: passed in current alpha scope with minimal MLA-specific in-text rendering
+- Chicago Author-Date: passed in current alpha scope, including slide and notes citations
+- Harvard: passed in current alpha scope, including slide and notes citations
+- MLA: passed in current alpha scope with minimal MLA-specific in-text rendering, including slide and notes citations
   - new MLA citations render as minimal parenthetical labels, for example `(Author)`, `(Author and Author)`, or `(Corporate Author)`
   - locator/page support is not included
   - existing MLA citations inserted with older alpha versions are not migrated automatically
@@ -157,7 +160,9 @@ Current alpha status as of `v0.1.0-alpha.18`:
 
 Locator/detail references such as pages, chapters, clauses, figures, and tables are not part of the current alpha scope.
 
-IEEE citations are persisted internally via PowerPoint shape tags. Visible numeric citations are not sufficient on their own; document updates and bibliography rebuilds depend on the stored citation metadata.
+Citations are persisted internally via PowerPoint shape tags. Visible citation text alone is not sufficient; document updates and bibliography rebuilds depend on the stored citation metadata.
+
+The bibliography anchor remains limited to normal slide shapes. Notes citations can contribute to the bibliography, but bibliography targets are not searched for or set inside NotesPage shapes.
 
 ---
 

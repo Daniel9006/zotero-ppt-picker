@@ -15,7 +15,7 @@ zotero-ppt-picker/
 ├── docs/
 │   ├── development.md        # developer and architecture documentation
 │   ├── debugging.md          # debugging notes and known runtime issues
-│   └── testing.md            # manual alpha retest checklist
+│   ├── testing.md            # manual alpha retest checklist
 │   └── mac_linux.md          # macOS / Linux notes and limitations
 ├── test_zotero_config.py     # standalone test for config and credential dialog
 ├── requirements.txt          # Python dependencies
@@ -85,20 +85,23 @@ Errors are raised as `ConfigError` and must be handled by the caller.
 
 ## User-facing maintenance workflows
 
-As of `v0.1.0-alpha.18`, the main user-facing maintenance workflow is **Dokument aktualisieren**.
+As of `v0.1.0-alpha.19`, the main user-facing maintenance workflow remains **Dokument aktualisieren**.
 
 This workflow is the primary path after users edit or delete citations in PowerPoint. Internally, it calls the same central cleanup/resync logic that maintains the relationship between visible citation text, stored citation metadata, and bibliography contents.
+
+Starting with `v0.1.0-alpha.19`, this document-wide resync includes citations stored in normal slide shapes and in PowerPoint NotesPage shapes.
 
 ### Dokument aktualisieren
 
 The **Dokument aktualisieren** workflow:
 
 - resynchronizes visible citations with stored citation state
-- removes deleted citations from the bibliography
+- scans normal slide shapes and NotesPage shapes
+- removes deleted slide or notes citations from the bibliography
 - clears the bibliography when no citations remain
 - tolerates missing bibliography targets
 - repairs APA/Harvard suffix disambiguation
-- runs IEEE renumbering
+- runs IEEE renumbering across slide and notes citations
 - performs only the base citation-state resync for MLA and Chicago Author-Date
 
 This is the preferred user-facing workflow for document maintenance.
@@ -115,6 +118,8 @@ It does not primarily:
 - repair APA/Harvard suffixes
 - renumber IEEE citations
 
+It uses the current stored citation state from normal slide shapes and NotesPage shapes, but the bibliography target itself remains a normal slide shape.
+
 ---
 
 ## Citation state model
@@ -122,6 +127,33 @@ It does not primarily:
 Citations are persisted in PowerPoint shape tags using `ZP_CITES`.
 
 This internal citation state is required because visible citation text alone is not sufficient for deterministic cleanup, bibliography rebuilds, and style-specific renumbering.
+
+### Citation scan scope
+
+As of `v0.1.0-alpha.19`, document-wide citation scans include:
+
+1. normal slide shapes
+2. NotesPage shapes for the same slide
+
+The intentional document order is:
+
+```text
+Slide 1 → Notes 1 → Slide 2 → Notes 2 → …
+```
+
+This order is relevant for numeric styles such as IEEE because numbering is derived from the document-wide citation order.
+
+The shared citation-shape iteration is used by document-wide paths such as:
+
+- `collect_all_cites_by_key()`
+- `collect_all_cite_texts()`
+- `normalize_sig_group(...)`
+- `renormalize_all_sig_groups()`
+- `build_ieee_numbering_from_document()`
+- `resync_bibliography_keys_from_document(...)`
+- `renumber_ieee_and_update(...)`
+
+Bibliography anchor resolution intentionally remains limited to normal slide shapes. The anchor is not searched for or set in NotesPage shapes.
 
 Stored citation records contain at least:
 - `key`: Zotero item key
@@ -137,19 +169,36 @@ Important rules:
 
 ---
 
+### Notes insert fallback
+
+PowerPoint does not always expose a reliable shape object when the text cursor is inside the notes pane.
+
+For notes insertion, the application therefore uses a fallback path when the normal ShapeRange/parent lookup does not identify the target shape:
+
+1. insert a temporary marker at the current cursor position
+2. scan the current slide and its NotesPage shapes
+3. find the text shape containing the marker
+4. remove the marker
+5. store the citation metadata (`ZP_CITES`) on the detected notes shape
+
+This keeps the existing citation-state model unchanged while allowing notes citations to participate in document-wide update and bibliography workflows.
+
+---
+
 ## Citation style validation status
 
-As of `v0.1.0-alpha.18`, the base citation style matrix has been retested manually.
+As of `v0.1.0-alpha.19`, the base citation style matrix has been retested manually with slide and notes citations.
 
 The scope of this validation was limited to the current alpha base functionality:
 
-- citation insertion
-- bibliography target setup
+- citation insertion on normal slides
+- citation insertion in PowerPoint notes
+- bibliography target setup on normal slide shapes
 - bibliography-only rebuild via **Bibliographie neu schreiben**
 - document-level resync via **Dokument aktualisieren**
-- cleanup after partial citation deletion
+- cleanup after deleting slide or notes citations
 - full citation deletion and bibliography clearing
-- late bibliography anchor setup
+- notes-only citation scenarios
 - missing bibliography anchor handling
 - persistence after save, close, and reopen
 - rough stylistic plausibility
@@ -158,17 +207,19 @@ Locator and detail references such as pages, chapters, clauses, figures, and tab
 
 | Style | Status | Notes |
 | --- | --- | --- |
-| APA | Passed | Insert, bibliography rebuild, document update, a/b disambiguation, rollback after deletion, no-anchor behavior, full deletion, damaged citation handling, text box deletion, persistence, and log checks passed. |
-| IEEE | Passed | Insert, bibliography rebuild, document update, deletion and renumbering from first/middle/last positions, no-anchor behavior, damaged citation handling, inserting before existing citations, persistence, and log checks passed. Visible numbers and bibliography numbers remain consistent after **Dokument aktualisieren**. |
-| Chicago Author-Date | Passed | Insert, bibliography rebuild, document update, visible citation deletion, no-anchor behavior, full deletion, damaged citation handling, text box deletion, persistence, and log checks passed. |
-| Harvard | Passed | Insert, bibliography rebuild, document update, a/b disambiguation, rollback after deletion, no-anchor behavior, full deletion, damaged citation handling, text box deletion, persistence, and log checks passed. |
-| MLA | Passed in alpha scope | Insert, bibliography rebuild, document update, visible citation deletion, no-anchor behavior, full deletion, damaged citation handling, text box deletion, persistence, and log checks passed. Uses minimal MLA-plausible parenthetical labels. Locator/page support and full CSL-style validation remain future work. |
+| APA | Passed | Insert on slide and in notes, notes citation in bibliography, notes deletion cleanup, persistence, document update, and bibliography rewrite passed. |
+| IEEE | Passed | Numbering across `Slide 1 → Notes 1 → Slide 2` produced `[1]`, `[2]`, `[3]`; deleting a notes citation renumbered remaining citations and cleaned the bibliography correctly. |
+| Chicago Author-Date | Passed | Insert on slide and in notes, notes citation deletion, and bibliography cleanup passed. |
+| Harvard | Passed | Insert on slide and in notes, notes citation deletion, and bibliography cleanup passed. |
+| MLA | Passed in alpha scope | Insert on slide and in notes, notes citation deletion, and bibliography cleanup passed. MLA notes citations did not regress to author-date rendering. Locator/page support and full CSL-style validation remain future work. |
 
 Open follow-up topics:
 
 1. MLA disambiguation for identical visible labels remains future work.
 2. Locator/detail reference support must be designed as a separate feature block.
 3. Deeper CSL/style-engine validation remains future work.
+4. PowerPoint launcher or Ribbon integration remains outside the current scope.
+5. A separate notes bibliography mode is not planned for this alpha scope.
 
 ---
 

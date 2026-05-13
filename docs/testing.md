@@ -27,13 +27,17 @@ This checklist covers:
 - style-specific behavior for the supported base styles
 - log inspection
 - language-boundary checks between user-facing and maintainer-facing text
+- citation insertion on normal slides and in PowerPoint notes
+- bibliography target handling on normal slides
+- the primary document update workflow with slide and notes citations
+- the secondary bibliography rewrite workflow with slide and notes citations
 
 This checklist does not cover:
 
 - new citation styles
-- notes citation support
+- separate notes bibliography mode
 - locator or page support
-- PowerPoint launcher or locator features
+- PowerPoint launcher or Ribbon integration
 - CSL/style-engine refactoring
 - COM/threading refactors unless they were explicitly changed
 - packaging or installer validation
@@ -161,6 +165,35 @@ Expected base result:
 
 ---
 
+## Notes Citation Checks
+
+Use these checks for releases that include or may affect notes citation support.
+
+| Done | Check |
+| --- | --- |
+| [ ] | Insert a citation on a normal slide. |
+| [ ] | Insert a citation in PowerPoint notes. |
+| [ ] | Verify that both slide and notes citations appear in the bibliography. |
+| [ ] | Run **Dokument aktualisieren** with citations on slides and in notes. |
+| [ ] | Run **Bibliographie neu schreiben** with citations on slides and in notes. |
+| [ ] | Delete a notes citation and run **Dokument aktualisieren**. |
+| [ ] | Verify that the deleted notes citation is removed from the bibliography. |
+| [ ] | Verify that a bibliography can be built when all citations are only in notes. |
+| [ ] | Delete all citations and run **Dokument aktualisieren**. |
+| [ ] | Verify that the bibliography anchor remains and the bibliography is cleared. |
+| [ ] | Save, close, and reopen the presentation. |
+| [ ] | Run **Dokument aktualisieren** again after reopening. |
+| [ ] | Verify that notes citation metadata persists after reopening. |
+
+Expected result:
+
+```text
+Notes citation support: passed / failed
+Notes:
+```
+
+---
+
 ## Style-Specific Checks
 
 ### APA
@@ -171,6 +204,10 @@ Verify:
 - bibliography update after insert/delete
 - `a`/`b` disambiguation where applicable
 - rollback or rebuild after deleting one item from a disambiguated group
+- citation insertion on a normal slide and in notes
+- bibliography includes notes citations
+- deleting a notes citation removes it from the bibliography after document update
+- author-year behavior remains correct across slide and notes citations
 
 Result:
 
@@ -187,6 +224,10 @@ Verify:
 - bibliography update after insert/delete
 - `a`/`b` disambiguation where applicable
 - rollback or rebuild after deleting one item from a disambiguated group
+- citation insertion on a normal slide and in notes
+- bibliography includes notes citations
+- deleting a notes citation removes it from the bibliography after document update
+- author-year behavior remains correct across slide and notes citations
 
 Result:
 
@@ -204,6 +245,10 @@ Verify:
 - inserting a citation before an existing citation renumbers following citations
 - bibliography numbering follows document order
 - no duplicate bibliography labels appear, such as `[1] [1]`
+- numbering follows `Slide 1 → Notes 1 → Slide 2`
+- expected numbering is `[1]`, `[2]`, `[3]`
+- deleting the notes citation renumbers remaining citations to `[1]`, `[2]`
+- bibliography numbering remains consistent after document update
 
 Result:
 
@@ -220,6 +265,9 @@ Verify:
 - no unexpected APA/Harvard repair path is applied
 - bibliography update works in the current alpha scope
 - no locator or page behavior is expected
+- citation insertion on a normal slide and in notes
+- notes citations do not render as author-date citations
+- deleting a notes citation removes it from the bibliography after document update
 
 Result:
 
@@ -235,6 +283,10 @@ Verify:
 - base author-date citation behavior
 - bibliography update after insert/delete
 - the update workflow does not regress APA, Harvard, IEEE, or MLA behavior
+- citation insertion on a normal slide and in notes
+- bibliography includes notes citations
+- deleting a notes citation removes it from the bibliography after document update
+- base resync works with notes citations
 
 Result:
 
@@ -259,6 +311,9 @@ RuntimeError
 Bibliography not updated
 unexpected style paths
 stale German debug or maintainer logs
+Insert fallback failed
+NotesPage
+notes fallback
 ```
 
 Expected result:
@@ -270,6 +325,9 @@ Expected result:
 - no stale German maintainer/debug log messages
 - user-facing UI, status, and dialog text remain German
 - maintainer-facing logs, comments, and internal diagnostics remain English
+- no unexpected `Insert fallback failed`
+- no notes-specific traceback
+- no notes-specific citation-state loss after save/close/reopen
 
 Known or intentionally tested error paths should be recorded with context.
 
@@ -305,10 +363,17 @@ Manual test result:
 - Chicago Author-Date passed in alpha scope
 - Log inspection passed
 
+Notes citation support:
+- Insert on slides and in notes passed / failed
+- Document update with slide and notes citations passed / failed
+- Bibliography rewrite with slide and notes citations passed / failed
+- Notes citation deletion cleanup passed / failed
+- Notes-only citation scenario passed / failed
+
 Known limitations:
-- Notes citation support is not included
+- Separate notes bibliography mode is not included
 - Locator/page support is not included
-- PowerPoint launcher/locator support is not included
+- PowerPoint launcher/Ribbon integration is not included
 - No full CSL/style-engine validation
 - No automated PowerPoint COM test suite
 ```

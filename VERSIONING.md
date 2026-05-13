@@ -9,11 +9,11 @@ This repository uses a pragmatic, small-team-friendly versioning approach:
 
 **Tags are the source of truth.**
 
-Current public baseline: `v0.1.0-alpha.18`
+Current public baseline: `v0.1.0-alpha.19`
 
 Current development focus:
 - technical stabilization of citation and bibliography mechanics
-- document update workflow for citation-state resync and bibliography maintenance
+- notes citation support for document-wide citation scans and bibliography maintenance
 - persistent citation state and document resync reliability
 
 ---
@@ -84,7 +84,7 @@ No feature work is bundled into such hotfixes.
 This is the first quality-enforced milestone.
 
 Required gates:
-1. English-only comments and docstrings
+1. English maintainer-facing comments and docstrings
 2. Specialized exceptions (no broad `except Exception` in core logic)
 3. Type hints and docstrings instead of commenting every variable
 
@@ -171,9 +171,9 @@ macOS support is treated as a major milestone with its own stabilization cycle.
 
 ---
 
-## Bugfix documentation
+## Release documentation
 
-This section documents verified fixes that affected runtime behavior.
+This section documents verified alpha changes, fixes, and runtime-relevant behavior.
 
 ### 2026-01-16 — win32com / pywin32 not found (Windows)
 
@@ -348,3 +348,63 @@ Notes:
 - Maintainer-facing comments, docstrings, and debug/log messages are English.
 - German user-facing UI text is preserved.
 - Logs are clean.
+
+### v0.1.0-alpha.19 – Notes citation support
+
+**Scope**
+- Minimal notes citation support for PowerPoint speaker notes.
+- Document-wide citation scans now include normal slide shapes and NotesPage shapes.
+- Document order is defined as `Slide 1 → Notes 1 → Slide 2 → Notes 2 → …`.
+- Notes citations contribute to bibliography rebuilds and document updates.
+- The bibliography anchor remains limited to normal slide shapes.
+
+**Technical changes**
+- Added a central document-wide citation shape iteration path.
+- Document-wide citation operations now include slide shapes first, then notes shapes for the same slide.
+- NotesPage-aware citation scanning is used by:
+  - `collect_all_cites_by_key()`
+  - `collect_all_cite_texts()`
+  - `normalize_sig_group(...)`
+  - `renormalize_all_sig_groups()`
+  - `build_ieee_numbering_from_document()`
+  - `resync_bibliography_keys_from_document(...)`
+  - `renumber_ieee_and_update(...)`
+- Insert into notes uses a fallback path when PowerPoint does not expose a reliable shape via the normal selection path:
+  - insert a temporary marker
+  - scan the slide and NotesPage shapes
+  - find the shape containing the marker
+  - remove the marker
+  - store `ZP_CITES` metadata on the detected notes shape
+
+**Behavior**
+- Notes citations are included in **Dokument aktualisieren**.
+- Notes citations are included in **Bibliographie neu schreiben**.
+- Deleting a notes citation removes it from the bibliography after document update.
+- IEEE numbering follows the document order `Slide 1 → Notes 1 → Slide 2 → Notes 2 → …`.
+- If all citations exist only in notes, the bibliography can still be built from those citations.
+- If all citations are deleted, the existing slide-based bibliography anchor remains and the bibliography is cleared.
+
+**Not included**
+- No locator/page support.
+- No PowerPoint launcher or Ribbon integration.
+- No CSL/style-engine refactor.
+- No COM/threading refactor.
+- No Zotero Web API changes.
+- No separate notes bibliography mode.
+- No change to the German user-facing UI language.
+
+**Manual retest result**
+- APA: PASS.
+- Harvard: PASS.
+- IEEE: PASS.
+- MLA: PASS.
+- Chicago Author-Date: PASS.
+- Edge cases with notes-only citations and full deletion: PASS.
+
+**Log assessment**
+- Earlier errors were from pre-final insert fallback attempts.
+- Final successful runs did not show new relevant `Worker failed`, `Traceback`, or `Insert fallback failed` entries.
+- One IEEE error was caused by missing internet/DNS connectivity and was not related to notes or renumbering logic.
+
+**Overall result**
+- `v0.1.0-alpha.19 – Notes citation support`: release-ready.
