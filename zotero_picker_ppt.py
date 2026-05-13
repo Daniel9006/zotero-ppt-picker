@@ -22,7 +22,7 @@ import traceback
 
 import pythoncom  # pywin32
 
-# ===================== Konfiguration =====================
+# ===================== Configuration =====================
 MAX_RESULTS   = 50
 HTTP_TIMEOUT  = 15
 DOCPROP_NAME  = "ZPCiteState"  # CustomDocumentProperty (JSON)
@@ -37,17 +37,17 @@ STYLE_CHOICES = [
 PREF_FONT_SIZE = 14
 MIN_FONT_SIZE  = 10
 
-# Bibliographie-Anker (robust)
+# Bibliography anchor (robust)
 ALT_BIB_PREFIX = "ZP_BIB_GUID="
 
-# Tags für stabile Anker-Erkennung
+# Tags for stable anchor detection
 TAG_BIB_GUID_KEY = "ZP_BIB_GUID"
 
-# JSON-Liste pro Shape: [{"key": "...", "cite": "(...)"}, ...]
+# JSON list per Shape: [{"key": "...", "cite": "(...)"}, ...]
 CITE_TAG = "ZP_CITES"
 # =========================================================
 
-# ===================== COM Stabilisierung (Option A+) =====================
+# ===================== COM stabilization (Option A+) =====================
 COM_LOCK = threading.RLock()
 
 LOG = logging.getLogger("zotero_ppt")
@@ -82,7 +82,7 @@ def com_context(action: str = "", *, use_lock: bool = True):
         pythoncom.CoUninitialize()
 # ========================================================================
 
-# ======== Zero-width Marker für Nicht-IEEE-Zitate ========
+# ======== Zero-width markers for non-IEEE citations ========
 ZWM_START = "\u2062"
 ZWM_END   = "\u2063"
 ZWM_ALPH = ["\u200b", "\u200c", "\u200d", "\u2060"]
@@ -130,7 +130,7 @@ def _debug(msg):
 _CFG: Optional[ZoteroConfig] = None
 
 def reset_cfg_cache():
-    """Erlaubt später ein 'Config neu laden' ohne Prozess-Neustart."""
+    """Allows reloading the config later without restarting the process."""
     global _CFG
     _CFG = None
 
@@ -154,7 +154,7 @@ def get_cfg(*, allow_prompt: bool, parent: Optional[tk.Misc] = None) -> ZoteroCo
         raise RuntimeError(str(e)) from e
 
 
-# ===================== PowerPoint Helpers =================
+# ===================== PowerPoint helpers =================
 
 def _get_presentation():
     app = win32.Dispatch("PowerPoint.Application")
@@ -235,7 +235,7 @@ def _get_current_slide_and_shape():
                     for shp in slide.Shapes:
                         try:
                             if getattr(shp, "HasTextFrame", False):
-                                _ = shp.TextFrame  # nur um sicherzugehen, dass der Zugriff nicht crasht
+                                _ = shp.TextFrame  # ensure that accessing the text frame does not crash
                                 area = float(shp.Width) * float(shp.Height)
                                 if area > best_area:
                                     best, best_area = shp, area
@@ -309,7 +309,7 @@ def ppt_insert_text_at_cursor(s):
         return shp
     
 def _copy_font(src_font, dst_font):
-    """Kopiert möglichst viele Font-Eigenschaften robust."""
+    """Copies as many font properties as possible in a robust way."""
     props = ["Name", "Size", "Bold", "Italic", "Underline", "Color", "BaselineOffset"]
     for p in props:
         try:
@@ -319,9 +319,9 @@ def _copy_font(src_font, dst_font):
 
 def ppt_insert_hidden_marker(marker_text: str, trailing_text: str = " "):
     """
-    Fügt Marker an Cursorposition ein, macht ihn unsichtbar (Hidden),
-    und sorgt dafür, dass danach weitergeschrieben wird wie vorher
-    (Font/Größe etc.). Optional wird danach ein normales Leerzeichen eingefügt.
+    Inserts a marker at the cursor position, hides it, and ensures that
+    subsequent typing continues with the previous formatting
+    (font, size, etc.). Optionally inserts a normal space afterwards.
     """
     with com_context("ppt_insert_hidden_marker"):
         app = win32.Dispatch("PowerPoint.Application")
@@ -330,7 +330,7 @@ def ppt_insert_hidden_marker(marker_text: str, trailing_text: str = " "):
             raise RuntimeError("Kein PowerPoint-Fenster aktiv.")
         sel = win.Selection
 
-        # Basis-Range holen (Textcursor oder Shape-Auswahl)
+        # Get base range from text cursor or selected shape
         base_range = None
         try:
             tr = sel.TextRange
@@ -352,7 +352,7 @@ def ppt_insert_hidden_marker(marker_text: str, trailing_text: str = " "):
         if base_range is None:
             raise RuntimeError("Keine Text-Einfügeposition gefunden. Wähle ein Textfeld und setze den Cursor.")
 
-        # Aktuelle Schreib-Formatierung merken (vom Selection-TextRange, fallback base_range)
+        # Remember current typing format from selection text range, fallback to base_range
         try:
             fmt_font = sel.TextRange.Font
         except Exception:
@@ -362,13 +362,13 @@ def ppt_insert_hidden_marker(marker_text: str, trailing_text: str = " "):
         to_insert = marker_text + (trailing_text or "")
         base_range.InsertAfter(to_insert)
 
-        # Relativer Start (1-basiert) innerhalb base_range
+        # Relative start position within base_range, 1-based
         rel_start_1b = (insert_start_abs - base_range.Start) + 1
 
-        # Marker-Range
+        # Marker range
         mr = base_range.Characters(rel_start_1b, len(marker_text))
 
-        # Marker: gleiche Schrift wie Umgebung, dann Hidden
+        # Marker: use surrounding font, then hide it
         try:
             _copy_font(fmt_font, mr.Font)
         except Exception:
@@ -378,7 +378,7 @@ def ppt_insert_hidden_marker(marker_text: str, trailing_text: str = " "):
         except Exception:
             pass
 
-        # Trailing-Text (z.B. Leerzeichen): sichtbar und Format wie vorher
+        # Trailing text, e.g. a space: visible and formatted like the surrounding text
         if trailing_text:
             trr = base_range.Characters(rel_start_1b + len(marker_text), len(trailing_text))
             try:
@@ -408,7 +408,7 @@ def _author_year_parts(item):
 
 def _make_sig(item):
     author, year = _author_year_parts(item)
-    year = year or "n.d."   # wichtig: sonst wäre sig nur "Autor"
+    year = year or "n.d."   # important: otherwise the signature would only contain the author
     return f"{author}|{year}"
     
 def collect_all_cites_by_key():
@@ -436,16 +436,16 @@ def _replace_all(text, old, new):
 def normalize_sig_group(sig):
     """
     APA/Harvard:
-    Vergibt a/b/... für alle *verschiedenen Zotero-Keys* mit identischem Autor+Jahr (sig).
-    Baut Suffixe auch wieder ab, wenn nach Löschen nur noch 1 Key übrig ist.
-    Aktualisiert:
-    - sichtbaren Text in allen Shapes
-    - gespeicherte Cite-Tags
+    Assigns a/b/... to all *different Zotero keys* with the same author-year signature.
+    Also removes suffixes again when only one key remains after deletion.
+    Updates:
+    - visible text in all shapes
+    - stored citation tags
     """
     with com_context(f"normalize_sig_group sig={sig}"):
         pres = _get_presentation()
 
-        # 1) alle Vorkommen dieser sig einsammeln (über Tags)
+        # 1) Collect all occurrences of this signature via tags
         occ = []  # (slide, shp, idx, key, old_cite)
         for slide in pres.Slides:
             for shp in slide.Shapes:
@@ -465,39 +465,39 @@ def normalize_sig_group(sig):
         if not occ:
             return
 
-        # stabile Reihenfolge: erster Fund im Dokument
+        # Stable order: first occurrence in the document
         keys_in_order = []
         for _, _, _, k, _ in occ:
             if k not in keys_in_order:
                 keys_in_order.append(k)
 
         def strip_suffix(cite: str) -> str:
-            # (Autor, 2020a) -> (Autor, 2020)
-            # (Autor, n.d.a) -> (Autor, n.d.)
+            # (Author, 2020a) -> (Author, 2020)
+            # (Author, n.d.a) -> (Author, n.d.)
             return re.sub(r"((?:\d{4})|n\.d\.)[a-z]\)$", r"\1)", cite)
 
-        # pro key eine "Basis" (ohne Suffix) merken
+        # Remember one base citation without suffix per key
         base_by_key = {}
         for _, _, _, k, oc in occ:
             if k not in base_by_key:
                 base_by_key[k] = strip_suffix(oc)
 
-        # 2) Zieltexte pro Key bestimmen
+        # 2) Determine target citation text per key
         letters = "abcdefghijklmnopqrstuvwxyz"
         new_by_key = {}
 
         if len(keys_in_order) == 1:
-            # ROLLBACK-FALL: a/b entfernen
+            # Rollback case: remove a/b suffix
             k = keys_in_order[0]
             new_by_key[k] = base_by_key.get(k) or strip_suffix(occ[0][4])
         else:
-            # a/b/... vergeben
+            # Assign a/b/... suffixes
             for idx, k in enumerate(keys_in_order):
                 base = base_by_key.get(k) or "(o. A.)"
                 new_by_key[k] = base[:-1] + letters[idx] + ")"
 
-        # 3) pro Shape sequenziell ersetzen (ohne Shape als Dict-Key!)
-        by_shape = {}  # (slide_id, shape_id) -> {"shape": shp, "items":[(idx,key,old_cite),...]}
+        # 3) Replace sequentially per shape without using the shape object as a dict key
+        by_shape = {}  # (slide_id, shape_id) -> {"shape": shp, "items":[(idx, key, old_cite),...]}
         for slide, shp, i, k, old_cite in occ:
             try:
                 slide_id = int(slide.SlideID)
@@ -525,7 +525,7 @@ def normalize_sig_group(sig):
                     if replaced:
                         changed = True
 
-                    # Tag updaten (Index passt zur Tag-Liste, solange prune vorher lief)
+                    # Update tag; index matches the tag list as long as prune ran beforehand
                     if i < len(arr) and arr[i].get("key") == k:
                         arr[i]["cite"] = new_cite
 
@@ -561,7 +561,7 @@ HTTP_TRANSIENT_EXC = (requests.Timeout, requests.ConnectionError)
 
 def _retry_delay(resp, attempt: int) -> float:
     """
-    Beachtet serverseitige Retry-Hinweise, sonst einfacher Backoff.
+    Uses server-provided retry hints if available, otherwise applies simple backoff.
     """
     for header in ("Retry-After", "Backoff"):
         raw = (resp.headers.get(header) or "").strip()
@@ -575,13 +575,13 @@ def _retry_delay(resp, attempt: int) -> float:
 
 def _safe_get(url, *, headers=None, params=None, timeout=HTTP_TIMEOUT, retries=3, context=""):
     """
-    Robuster GET mit Retry für transiente Netzwerk-/API-Fehler.
+    Robust GET with retry handling for transient network/API errors.
 
-    Retry bei:
+    Retries on:
     - Timeout / ConnectionError
     - HTTP 429 / 500 / 502 / 503 / 504
 
-    Kein Retry bei:
+    Does not retry on:
     - 400 / 401 / 403 / 404 etc.
     """
     last_exc = None
@@ -646,12 +646,12 @@ def _safe_get(url, *, headers=None, params=None, timeout=HTTP_TIMEOUT, retries=3
     raise last_exc or RuntimeError(f"HTTP GET failed without specific exception: {url}")
 
 class BibliographyFetchError(RuntimeError):
-    """Bibliographieeintrag konnte über die Zotero Web API nicht geladen werden."""
+    """Bibliography entry could not be loaded via the Zotero Web API."""
     pass
 # =========================================================
 
 
-# ===================== Dokument-State =====================
+# ===================== Document state =====================
 def _get_docprop_by_name(props, name):
     try:
         return props.Item(name)
@@ -692,15 +692,15 @@ def save_doc_state(state):
         props.Add(DOCPROP_NAME, False, 4, payload)
 
 
-# ============ Bibliographie: stabiler Anker über Tags =====
+# ============ Bibliography: stable anchor via tags ========
 def _get_shape_tag(shape, key):
-    # Tags sind je nach Office-Version manchmal zickig → robust abfragen
+    # Tags can be unreliable depending on the Office version, so read them defensively
     try:
-        # VBA-Style: shape.Tags("key")
+        # VBA-style: shape.Tags("key")
         return shape.Tags(key)
     except Exception:
         try:
-            # Alternative: shape.Tags.Item("key")
+            # Alternative access pattern: shape.Tags.Item("key")
             return shape.Tags.Item(key)
         except Exception:
             return ""
@@ -733,7 +733,7 @@ def _save_shape_cites(shp, arr):
     except Exception:
         pass
 
-# LEGACY/OPTIONAL: Zero-width Marker (aktuell nicht verwendet in APA/Harvard; evtl. später wieder nützlich)
+# LEGACY/OPTIONAL: zero-width markers, currently unused for APA/Harvard but may be useful later
 def collect_all_cite_texts():
     with com_context("collect_all_cite_texts"):
         pres = _get_presentation()
@@ -782,7 +782,7 @@ def prune_cites_in_shape(shp):
     return kept
 
 def _format_authoryear_base_from_item(item):
-    """Basis ohne a/b: (Autor, Jahr) – aus pyzotero Item-Dict."""
+    """Base citation without a/b suffix: (Author, Year), derived from a pyzotero item dict."""
     data = item.get("data", {})
     creators = data.get("creators", []) or []
     names = []
@@ -826,14 +826,14 @@ def _format_mla_base_from_item(item):
 
     return f"({label})"
 
-# LEGACY/OPTIONAL: Zero-width Marker (aktuell nicht verwendet in APA/Harvard; evtl. später wieder nützlich)
+# LEGACY/OPTIONAL: zero-width markers, currently unused for APA/Harvard but may be useful later
 def _disambiguate_authoryear(base, existing_cites):
-    """macht aus (Müller, 2020) -> (Müller, 2020a/b/...) falls nötig"""
+    """Turns (Smith, 2020) into (Smith, 2020a/b/...) if needed."""
     if base not in existing_cites:
         return base
     if not base.endswith(")"):
         return base
-    stem = base[:-1]  # ohne )
+    stem = base[:-1]  # without closing parenthesis
     suffix = "a"
     while f"{stem}{suffix})" in existing_cites:
         suffix = chr(ord(suffix) + 1)
@@ -891,7 +891,7 @@ def set_bibliography_anchor_from_selection():
                 shp = None
 
         _debug(
-            f"Anchor-Set: slide={getattr(slide,'SlideID',None)}, "
+            f"Anchor selection: slide={getattr(slide,'SlideID',None)}, "
             f"shape_id={getattr(shp,'Id',getattr(shp,'ID',None))}, "
             f"hasTextFrame={getattr(shp,'HasTextFrame',False)}"
         )
@@ -906,13 +906,13 @@ def set_bibliography_anchor_from_selection():
                 "nicht nur den Cursor setzen."
             )
 
-        # absichtlich KEIN `shp.TextFrame.HasText` → Bibliographie-Felder dürfen leer sein
+        # Intentionally no `shp.TextFrame.HasText`: bibliography fields are allowed to be empty
 
         st = load_doc_state()
         bib_guid = st.get("bib_guid") or str(uuid.uuid4())
         st["bib_guid"] = bib_guid
 
-        # harter Anker über IDs (Id vs. ID robust abfangen)
+        # Hard anchor via IDs, robustly handling Id vs. ID
         try:
             shape_id = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
             slide_id = int(slide.SlideID)
@@ -929,22 +929,22 @@ def set_bibliography_anchor_from_selection():
             st.pop("bib_anchor", None)
 
         save_doc_state(st)
-        _debug(f"Anchor gespeichert: bib_guid={st.get('bib_guid')}, bib_anchor={st.get('bib_anchor')}")
+        _debug(f"Anchor saved: bib_guid={st.get('bib_guid')}, bib_anchor={st.get('bib_anchor')}")
 
-        # 1) Tags versuchen (nice-to-have)
+        # 1) Try tags as a nice-to-have
         _set_shape_tag(shp, TAG_BIB_GUID_KEY, bib_guid)
 
-        # 2) ROBUST: AlternativeText setzen (persistiert zuverlässig)
+        # 2) Robust path: set AlternativeText, which persists reliably
         try:
             shp.AlternativeText = ALT_BIB_PREFIX + bib_guid
         except Exception:
-            # manche Shapes blocken das – dann wenigstens Tag
+            # Some shapes may block this; in that case, keep at least the tag
             pass
-        _debug("Anchor getaggt: Tag + AlternativeText gesetzt (falls möglich)")
+        _debug("Anchor tagged: tag + AlternativeText set where possible")
 
-        # 3) Sofort prüfen, ob wir das Ziel wiederfinden
+        # 3) Immediately verify that the target can be resolved again
         if not has_bibliography_anchor():
-            _debug("Anchor-Check FAIL: _resolve_anchor_list() liefert 0")
+            _debug("Anchor check FAIL: _resolve_anchor_list() returned 0")
             raise RuntimeError(
                 "Bibliographie-Ziel konnte nicht gespeichert werden (PowerPoint hat den Anker nicht übernommen).\n"
                 "Bitte: Textfeld einmal anklicken (Rahmen sichtbar), dann erneut „Bibliographie-Ziel…“."
@@ -966,7 +966,7 @@ def _resolve_anchor_list():
         resolved = []
         seen = set()  # (slide_id, shape_id)
 
-        # 1) Direkt über SlideID/ShapeID (am zuverlässigsten)
+        # 1) Direct lookup via SlideID/ShapeID, most reliable path
         slide_id = anch.get("slide_id")
         shape_id = anch.get("shape_id")
         if slide_id and shape_id:
@@ -988,7 +988,7 @@ def _resolve_anchor_list():
             except Exception:
                 pass
 
-        # 2) Zusätzlich: alle Shapes mit GUID finden (für Fortsetzungsfolien / Duplikate)
+        # 2) Additionally find all shapes with the GUID, including continuation slides or duplicates
         if bib_guid:
             for slide in pres.Slides:
                 for shp in slide.Shapes:
@@ -1017,7 +1017,7 @@ def _resolve_anchor_list():
                     except Exception:
                         continue
 
-        _debug(f"Resolve anchors: gefunden={len(resolved)}")
+        _debug(f"Resolve anchors: found={len(resolved)}")
         return resolved
 
 def has_bibliography_anchor():
@@ -1037,7 +1037,7 @@ def get_status_summary():
     return f"Stil: {code_to_label(style)} | Zitate: {len(keys)} | Bibliographie-Ziel: {anchor_txt}"
 
 def _is_title_placeholder(shp) -> bool:
-    """True, wenn Shape sehr wahrscheinlich ein Titel-Placeholder ist."""
+    """Return True if the shape is very likely a title placeholder."""
     try:
         t = int(getattr(shp.PlaceholderFormat, "Type", -1))
         if t in (1, 3):  # Title + Center Title
@@ -1045,7 +1045,7 @@ def _is_title_placeholder(shp) -> bool:
     except Exception:
         pass
 
-    # zusätzliche Heuristik (Fallback)
+    # Additional fallback heuristic
     try:
         name = (getattr(shp, "Name", "") or "").lower()
         if "title" in name:
@@ -1063,8 +1063,8 @@ def _placeholder_type(shp):
 
 def _find_best_text_placeholder(slide, src_shape=None):
     """
-    Sucht auf einer Folie ein geeignetes Text-Placeholder-Feld (Layout-Shape),
-    bevorzugt gleichen Placeholder-Typ wie src_shape (falls src_shape Placeholder ist).
+    Finds a suitable text placeholder on a slide, preferring the same
+    placeholder type as src_shape if src_shape is a placeholder.
     """
     want_type = _placeholder_type(src_shape) if src_shape is not None else None
     allowed = {2, 7}  # Body, Content
@@ -1078,19 +1078,19 @@ def _find_best_text_placeholder(slide, src_shape=None):
         try:
             if not getattr(shp, "HasTextFrame", False):
                 continue
-            # Placeholder-Objekt?
-            _ = shp.PlaceholderFormat  # wirft Exception, wenn kein Placeholder
+            # Is this a placeholder object?
+            _ = shp.PlaceholderFormat  # raises an exception if this is not a placeholder
         except Exception:
             continue
 
         try:
-            # Titel-Placeholder überspringen
+            # Skip title placeholders
             if _is_title_placeholder(shp):
                 continue
         except Exception:
             pass
 
-        # bevorzugt: gleicher Placeholder-Typ wie Quelle
+        # Prefer the same placeholder type as the source shape
         score = 0
         try:
             ptype = _placeholder_type(shp)
@@ -1102,7 +1102,7 @@ def _find_best_text_placeholder(slide, src_shape=None):
         except Exception:
             continue
 
-        # zweitbeste Heuristik: größtes Textfeld
+        # Secondary heuristic: largest text field
         try:
             score += int(float(shp.Width) * float(shp.Height))
         except Exception:
@@ -1113,16 +1113,16 @@ def _find_best_text_placeholder(slide, src_shape=None):
             best_score = score
         
     if best is None:
-        _debug("Find placeholder: keiner gefunden (allowed types: {2,7})")
+        _debug("Find placeholder: none found (allowed types: {2,7})")
 
     return best
 
 def _get_slide_title_text(slide):
-    """Liest den Text des Titel-Placeholders einer Folie."""
+    """Reads the text of a slide title placeholder."""
     try:
         for shp in slide.Shapes:
             try:
-                if int(shp.PlaceholderFormat.Type) in (1, 3):  # Title oder Center Title
+                if int(shp.PlaceholderFormat.Type) in (1, 3):  # Title or Center Title
                     if shp.TextFrame.HasText:
                         return shp.TextFrame.TextRange.Text
             except Exception:
@@ -1132,13 +1132,13 @@ def _get_slide_title_text(slide):
     return ""
 
 def _set_slide_title_text(slide, text):
-    """Setzt den Text des Titel-Placeholders einer Folie."""
+    """Sets the text of a slide title placeholder."""
     if not text:
         return
     try:
         for shp in slide.Shapes:
             try:
-                if int(shp.PlaceholderFormat.Type) in (1, 3):  # Title oder Center Title
+                if int(shp.PlaceholderFormat.Type) in (1, 3):  # Title or Center Title
                     shp.TextFrame.TextRange.Text = text
                     return
             except Exception:
@@ -1151,19 +1151,19 @@ def _duplicate_anchor_to_new_slide_like(src_slide, src_shape):
     with com_context("_duplicate_anchor_to_new_slide_like"):
         pres = _get_presentation()
 
-        # Titel der Quellfolie merken
+        # Remember the title of the source slide
         title_text = _get_slide_title_text(src_slide)
 
-        # neue Folie mit gleichem Layout
+        # Create a new slide with the same layout
         new_slide = pres.Slides.AddSlide(pres.Slides.Count + 1, src_slide.CustomLayout)
-        _debug(f"Neue Bibliographie-Folie erzeugt (Layout: {src_slide.CustomLayout.Name})")
+        _debug(f"Created new bibliography slide (layout: {src_slide.CustomLayout.Name})")
 
-        # Titel übernehmen
+        # Copy title
         if title_text:
             _set_slide_title_text(new_slide, title_text)
-            _debug(f"Titel übernommen: '{title_text}'")
+            _debug(f"Copied title: '{title_text}'")
 
-        # 1) Versuche: passendes Layout-Placeholder-Textfeld finden
+        # 1) Try to find a suitable layout text placeholder
         new_shape = _find_best_text_placeholder(new_slide, src_shape=src_shape)
 
         if new_shape is not None:
@@ -1172,14 +1172,14 @@ def _duplicate_anchor_to_new_slide_like(src_slide, src_shape):
             except Exception:
                 ptype = "?"
 
-            _debug(f"Layout-Placeholder gefunden (Type={ptype}, Name='{getattr(new_shape, 'Name', '')}')")
+            _debug(f"Found layout placeholder (Type={ptype}, Name='{getattr(new_shape, 'Name', '')}')")
 
             try:
                 new_shape.TextFrame.TextRange.Text = ""
             except Exception:
                 pass
         else:
-            _debug("WARNUNG: Kein geeignetes Text-Placeholder im Layout gefunden → Copy/Paste-Fallback")
+            _debug("WARNING: no suitable text placeholder found in layout; using copy/paste fallback")
 
             # Fallback
             src_shape.Copy()
@@ -1190,7 +1190,7 @@ def _duplicate_anchor_to_new_slide_like(src_slide, src_shape):
             except Exception:
                 pass
 
-        # gleiche GUID taggen (Fortsetzung gehört zum selben Bib-Set)
+        # Tag with the same GUID; continuation slides belong to the same bibliography set
         st = load_doc_state()
         bib_guid = st.get("bib_guid")
         if bib_guid and new_shape is not None:
@@ -1204,7 +1204,7 @@ def _duplicate_anchor_to_new_slide_like(src_slide, src_shape):
 # =========================================================
 
 
-# ============ Zotero: Bibliographie-Einträge ==============
+# ============ Zotero: bibliography entries ===============
 def html_to_text(html_str):
     text = re.sub(r"<br\s*/?>", "\n", html_str, flags=re.I)
     text = re.sub(r"<[^>]+>", "", text)
@@ -1303,7 +1303,7 @@ def get_bibliography_entry_webapi(api_key, library_id, library_type, item_key, s
 # =========================================================
 
 
-# ======== Bibliographie: Schreiben & Paginierung =========
+# ======== Bibliography: writing and pagination ===========
 def _try_fit_entries_into_shape(shape, entries, preferred_size=PREF_FONT_SIZE, min_size=MIN_FONT_SIZE, line_sep="\r"):
     _debug(f"Fit: entries={len(entries)} pref={preferred_size} min={min_size} shapeH={getattr(shape,'Height',None)}")
 
@@ -1340,7 +1340,7 @@ def _try_fit_entries_into_shape(shape, entries, preferred_size=PREF_FONT_SIZE, m
 
     if entries:
         write_with_size(min_size, 1)
-        _debug("Fit WARN: nur 1 Eintrag passt (min size)")
+        _debug("Fit WARN: only 1 entry fits at minimum size")
         return 1, min_size
         
     return 0, preferred_size
@@ -1469,7 +1469,7 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
 # =========================================================
 
 
-# =========== IEEE: Platzhalter & Renummerierung ==========
+# =========== IEEE: placeholders and renumbering ==========
 PH_RE = re.compile(r"⟦zp:([A-Za-z0-9]+)⟧")
 
 def scan_all_placeholders():
@@ -1766,8 +1766,8 @@ def run_in_thread(name: str, fn, *, on_error=None, ui_parent=None):
         threading.current_thread().name = f"ZP-{name}"
         LOG.debug("Worker start: %s", name)
         try:
-            # Nur COM initialisieren, aber NICHT den globalen COM-Lock
-            # für die gesamte Worker-Laufzeit halten.
+            # Initialize COM only; do NOT hold the global COM lock
+            # for the entire worker lifetime.
             with com_context(f"worker:{name}", use_lock=False):
                 fn()
             LOG.debug("Worker done: %s", name)
@@ -1806,7 +1806,7 @@ class PickerApp:
         self.root = root
         self.root.title("Zotero Picker → PowerPoint")
 
-        # Optional: Mindestgröße, damit UI nicht "gequetscht" wirkt
+        # Optional: minimum size so the UI does not look cramped
         self.root.minsize(420, 300)
 
         self.cfg = None
@@ -1819,11 +1819,11 @@ class PickerApp:
             save_doc_state(self.state)
         except Exception as e:
             self.state = {"style": DEFAULT_STYLE, "bib_keys": []}
-            self._ppt_startup_error = str(e)   # merken für später
+            self._ppt_startup_error = str(e)   # remember for later
 
         self.results = []
 
-        # Suche: Debounce + "latest-only" (gegen Flackern / Out-of-order Threads)
+        # Search: debounce + latest-only handling to avoid flicker and out-of-order threads
         self._search_after_id = None
         self._search_token = 0
 
@@ -1848,7 +1848,7 @@ class PickerApp:
         self.entry.bind("<KeyRelease>", self.on_key)
         self.entry.bind("<Return>", self.on_insert_click)
 
-        # Ergebnisliste + Scrollbars (vertikal + horizontal)
+        # Result list with vertical and horizontal scrollbars
         listfrm = ttk.Frame(frm)
         listfrm.pack(fill="both", expand=True, pady=8)
 
@@ -1858,26 +1858,26 @@ class PickerApp:
         vsb = ttk.Scrollbar(listfrm, orient="vertical", command=self.listbox.yview)
         hsb = ttk.Scrollbar(listfrm, orient="horizontal", command=self.listbox.xview)
 
-        # Listbox <-> Scrollbars koppeln
+        # Connect listbox and scrollbars
         self.listbox.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
-        # Grid-Layout: Listbox groß, V-Scrollbar rechts, H-Scrollbar unten über volle Breite
+        # Grid layout: large listbox, vertical scrollbar on the right, horizontal scrollbar below
         self.listbox.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, columnspan=2, sticky="ew")
 
-        # Frame-Resize-Regeln
+        # Frame resize rules
         listfrm.rowconfigure(0, weight=1)
         listfrm.columnconfigure(0, weight=1)
 
         self.listbox.bind("<Double-Button-1>", self.on_insert_click)
         
-        # --- Optional UX: horizontal scrollen mit Shift + Mausrad ---
+        # --- Optional UX: horizontal scrolling with Shift + mouse wheel ---
         def _on_mousewheel(ev):
-            # Windows/macOS: ev.delta; Shift gedrückt -> horizontal, sonst vertikal
-            shift = ((ev.state & 0x0001) != 0) or ((ev.state & 0x0004) != 0)  # je nach Tk/Platform
+            # Windows/macOS: ev.delta; Shift pressed -> horizontal, otherwise vertical
+            shift = ((ev.state & 0x0001) != 0) or ((ev.state & 0x0004) != 0)  # depending on Tk/platform
             if shift:
-                # X-Scroll: je nach Wheelrichtung
+                # X-scroll depending on wheel direction
                 step = -1 if ev.delta > 0 else 1
                 self.listbox.xview_scroll(step, "units")
             else:
@@ -1886,7 +1886,7 @@ class PickerApp:
             return "break"
 
         def _on_shift_mousewheel(ev):
-            # explizit Shift-Variante (falls Tk das separat liefert)
+            # Explicit Shift variant in case Tk emits it separately
             step = -1 if ev.delta > 0 else 1
             self.listbox.xview_scroll(step, "units")
             return "break"
@@ -1895,7 +1895,7 @@ class PickerApp:
         self.listbox.bind("<MouseWheel>", _on_mousewheel)
         self.listbox.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
 
-        # Linux (X11): Mausrad sind Button-Events
+        # Linux (X11): mouse wheel events are button events
         def _on_linux_wheel_up(ev):
             if (ev.state & 0x0001) or (ev.state & 0x0004):
                 self.listbox.xview_scroll(-1, "units")
@@ -1913,21 +1913,21 @@ class PickerApp:
         self.listbox.bind("<Button-4>", _on_linux_wheel_up)
         self.listbox.bind("<Button-5>", _on_linux_wheel_down)
 
-        # Buttons: 2x2 Grid statt eine Zeile (kein Verschwinden bei kleiner Höhe)
+        # Buttons: 2x2 grid instead of one row so they do not disappear at small window heights
         row2 = ttk.Frame(frm)
         row2.pack(fill="x", pady=4)
 
         buttons = [
             ("Zitation einfügen", self.on_insert_click),
-            ("Bibliographie aktualisieren", self.on_bib_update),
+            ("Dokument aktualisieren", self.on_document_update),
             ("Bibliographie-Ziel festlegen", self.on_set_anchor),
-            ("Zitate bereinigen", self.on_cleanup),
+            ("Bibliographie neu schreiben", self.on_bib_update),
         ]
 
         for i, (label, cmd) in enumerate(buttons):
             btn = ttk.Button(row2, text=label, command=cmd)
 
-            # Optional: ruhigeres Layout (ähnliche Breite) + sauberes Tab-Fokus-Verhalten
+            # Optional: calmer layout with similar widths and clean tab focus behavior
             btn.configure(takefocus=True)
 
             btn.grid(row=i // 2, column=i % 2, sticky="ew", padx=4, pady=2)
@@ -1945,7 +1945,7 @@ class PickerApp:
         if getattr(self, "_ppt_startup_error", None):
             self.set_status(f"PowerPoint nicht bereit: {self._ppt_startup_error}")
 
-        # Config erst nach GUI-Start prüfen (nie blockierend im __init__)
+        # Check config only after the GUI has started; never block in __init__
         self.root.after(0, self._ensure_cfg_ready)
 
         self.root.lift()
@@ -1963,7 +1963,7 @@ class PickerApp:
             self.status.config(text=f"(Status nicht verfügbar: {e})")
 
     def _ensure_cfg_ready(self):
-        # 1) zuerst ohne Prompt probieren (nicht blockierend)
+        # 1) First try without prompting, non-blocking
         try:
             self.cfg = get_cfg(allow_prompt=False, parent=self.root)
             self.z = zotero.Zotero(
@@ -1976,7 +1976,7 @@ class PickerApp:
         except RuntimeError:
             pass
 
-        # 2) jetzt ist die GUI lebendig → Prompt darf modal sein
+        # 2) The GUI is alive now, so a modal prompt is allowed
         try:
             self.cfg = get_cfg(allow_prompt=True, parent=self.root)
             self.z = zotero.Zotero(
@@ -2007,7 +2007,7 @@ class PickerApp:
             self.set_status("Bitte Zotero konfigurieren…")
             return
         
-        # Debounce: nicht bei jedem Key sofort suchen
+        # Debounce: do not search immediately on every key press
         q = self.query_var.get().strip()
         if self._search_after_id is not None:
             try:
@@ -2033,11 +2033,11 @@ class PickerApp:
             self.root.after(0, lambda: self.set_status(f"Suche fehlgeschlagen: {e}"))
 
     def update_results(self, items, token=None, q=None):
-        # NUR Dicts behalten
+        # Keep dicts only
         incoming = [it for it in (items or []) if isinstance(it, dict)]
         
         def _ui():
-            # "Latest-only": ältere / überholte Such-Threads ignorieren (Flackern weg)
+            # Latest-only: ignore older/outdated search threads to avoid flicker
             if token is not None and token != self._search_token:
                 return
             if q is not None and q != self.query_var.get().strip():
@@ -2085,7 +2085,7 @@ class PickerApp:
         return f"({author}, {year})" if year else f"({author}, n.d.)"
 
     def on_insert_click(self, event=None):
-        # 0) Aktuellen Treffer holen (UI-Thread)
+        # 0) Get the current result item on the UI thread
         it = self.current_item()
         if not it:
             self.set_status("Kein Eintrag ausgewählt.")
@@ -2100,15 +2100,15 @@ class PickerApp:
 
         _debug(f"Insert click: style={style}, key={key}")
 
-        # UI sofort informieren
+        # Inform the UI immediately
         self.set_status("Einfügen läuft...")
 
         def _work():
-            # Worker: alles COM + ggf. Web-API
+            # Worker: all COM work and optional Web API calls
             state = load_doc_state()
             style_local = state.get("style", style) or DEFAULT_STYLE
 
-            # IEEE: Platzhalter + Renummerierung (läuft komplett im Worker)
+            # IEEE: placeholder + renumbering, handled entirely in the worker
             if style_local == "ieee":
                 placeholder = f"⟦zp:{key}⟧"
                 shp = ppt_insert_text_at_cursor(f" {placeholder}")
@@ -2124,7 +2124,7 @@ class PickerApp:
                 ok = renumber_ieee_and_update(parent=self.root)
 
                 def _finish_ieee():
-                    # state ggf. aktualisieren (renumber_ieee_and_update schreibt doc_state)
+                    # Update state if possible; renumber_ieee_and_update writes doc_state
                     try:
                         self.state = load_doc_state()
                     except Exception:
@@ -2136,7 +2136,7 @@ class PickerApp:
                 self.root.after(0, _finish_ieee)
                 return
 
-            # 2) Bereits vorhandene Zitate nach Zotero-Key sammeln
+            # 2) Collect existing citations by Zotero key
             by_key = collect_all_cites_by_key()
 
             if style_local in ("apa", "harvard1") and key in by_key:
@@ -2149,31 +2149,31 @@ class PickerApp:
                 else:
                     cite = _format_authoryear_base_from_item(it)
 
-            # 3) Zitat an Cursorposition einfügen (hart: nur echter Cursor)
+            # 3) Insert citation at cursor position; strictly requires a real text cursor
             shp = ppt_insert_text_at_cursor(cite)
             _debug(f"Inserted cite: {cite}")
 
-            # 4) Cite im tatsächlich verwendeten Shape-Tag speichern
+            # 4) Store citation in the tag of the actual shape used
             arr = _load_shape_cites(shp)
             arr.append({"key": key, "cite": cite, "sig": sig})
             _save_shape_cites(shp, arr)
 
-            # 5) APA / Harvard: Disambiguierung normalisieren
+            # 5) APA / Harvard: normalize disambiguation
             if style_local in ("apa", "harvard1"):
                 normalize_sig_group(sig)
                 _debug(f"Normalized sig group: {sig}")
 
-            # 6) Bibliographie-Keys neu ableiten (schreibt doc_state)
+            # 6) Rebuild bibliography keys from the document and write doc_state
             state["bib_keys"] = resync_bibliography_keys_from_document(state)
             _debug(f"Resync keys: {len(state.get('bib_keys', []))}")
 
-            # 7) Auto-Update der Bibliographie, falls ein Anker existiert
+            # 7) Auto-update bibliography if an anchor exists
             did_bib = False
             if has_bibliography_anchor():
                 try:
                     cfg = get_cfg(allow_prompt=False, parent=self.root)
                 except RuntimeError:
-                    # UI-Dialog im UI-Thread
+                    # Show UI dialog on the UI thread
                     self.root.after(0, lambda: show_missing_zotero_config(self.root))
                     cfg = None
 
@@ -2207,7 +2207,7 @@ class PickerApp:
         )
         
     def on_set_anchor(self):
-        # nicht mehrfach öffnen
+        # Do not open multiple anchor windows
         if getattr(self, "_anchor_win", None) and self._anchor_win.winfo_exists():
             try:
                 self._anchor_win.lift()
@@ -2303,7 +2303,7 @@ class PickerApp:
 
         ttk.Button(btn_row, text="Abbrechen", command=_cancel).pack(side="right")
 
-        # --- Fenster über dem Picker zentrieren (NACH dem Layout!) ---
+        # --- Center window above the picker after layout is complete ---
         self.root.update_idletasks()
         win.update_idletasks()
 
@@ -2315,11 +2315,11 @@ class PickerApp:
         root_w = self.root.winfo_width()
         root_h = self.root.winfo_height()
 
-        # gewünschte Position (zentriert über Picker)
+        # Desired position, centered above the picker
         x = root_x + (root_w - confirm_w) // 2
         y = root_y + (root_h - confirm_h) // 2
 
-        # --- Clamp auf Bildschirm ---
+        # --- Clamp to screen bounds ---
         screen_w = win.winfo_screenwidth()
         screen_h = win.winfo_screenheight()
 
@@ -2333,10 +2333,10 @@ class PickerApp:
         except Exception:
             pass
         
-        # PPT in den Vordergrund holen, damit der User klicken kann
+        # Bring PowerPoint to the foreground so the user can click the target field
         _activate_powerpoint()
 
-        # Fenster soll beim Zurückkommen sicher über dem Picker liegen
+        # Ensure the anchor window is above the picker when the user returns
         try:
             win.attributes("-topmost", True)
             win.lift()
@@ -2344,6 +2344,17 @@ class PickerApp:
             pass
 
         _activate_powerpoint()
+
+    def on_document_update(self):
+        """
+        Primary user workflow:
+        - resyncs visible citations with stored citation metadata
+        - applies style-specific repairs where needed:
+            - APA/Harvard: author-year disambiguation rollback/rebuild
+            - IEEE: visible citation renumbering
+        - updates the bibliography if a bibliography target exists
+        """
+        return self.on_cleanup()
 
     def on_bib_update(self):
         try:
@@ -2354,12 +2365,12 @@ class PickerApp:
 
         style = self.state.get("style", DEFAULT_STYLE)
 
-        # UI sofort: "läuft..."
+        # Update UI immediately: running state
         self.set_status("Bibliographie wird aktualisiert...")
 
         def _work():
-            # COM-Teil komplett im Worker (run_in_thread wird com_context/Lock übernehmen)
-            state = load_doc_state()  # statt self.state direkt im Worker zu verwenden
+            # Run the COM part entirely in the worker; run_in_thread handles COM context/locking
+            state = load_doc_state()  # avoid using self.state directly in the worker
             state["bib_keys"] = resync_bibliography_keys_from_document(state)
             keys = state.get("bib_keys", [])
 
@@ -2390,11 +2401,11 @@ class PickerApp:
 
             self.root.after(0, _finish_ui)
 
-        # neuer run_in_thread (mit Name + ui_parent)
+        # Run bibliography update in the background
         run_in_thread("BibUpdate", _work, ui_parent=self.root)
         
     def on_cleanup(self):
-        _debug("Cleanup clicked")
+        _debug("Document update clicked")
 
         try:
             cfg = get_cfg(allow_prompt=False, parent=self.root)
@@ -2404,35 +2415,38 @@ class PickerApp:
 
         style = self.state.get("style", DEFAULT_STYLE)
 
-        # UI sofort: läuft…
-        self.set_status("Bereinigen läuft...")
+        # Update UI immediately: running state
+        self.set_status("Dokument wird aktualisiert...")
 
         def _work():
-            # --- COM-heavy Teil im Worker ---
+            # --- COM-heavy part in the worker ---
             state = load_doc_state()
+            bibliography_already_updated = False
 
-            # 1) Keys neu aus dem Dokument ableiten
+            # 1) Rebuild keys from the document
             new_keys = resync_bibliography_keys_from_document(state)
-            _debug(f"Cleanup: keys_after_prune={len(new_keys)} style={style}")
+            _debug(f"DocumentUpdate: keys_after_prune={len(new_keys)} style={style}")
 
-            # 2) APA/Harvard: a/b-Gruppen komplett neu normalisieren (inkl. Rollback)
+            # 2) APA/Harvard: fully renormalize a/b groups, including rollback
             if style in ("apa", "harvard1"):
                 renormalize_all_sig_groups()
-                _debug("Cleanup: renormalize_all_sig_groups done")
+                _debug("DocumentUpdate: renormalize_all_sig_groups done")
                 new_keys = resync_bibliography_keys_from_document(state)
             # 2b) IEEE: renumber visible citations and update stored cite tags
             if style == "ieee":
-                renumber_ieee_and_update(parent=self.root)
+                had_bibliography_anchor = has_bibliography_anchor()
+                ieee_update_ok = renumber_ieee_and_update(parent=self.root)
+                bibliography_already_updated = had_bibliography_anchor and ieee_update_ok
                 new_keys = resync_bibliography_keys_from_document(state)
-                _debug("Cleanup: renumber_ieee_and_update done")
+                _debug("DocumentUpdate: renumber_ieee_and_update done")
             
-            # 3) Basis-Status bestimmen
+            # 3) Determine base status
             if not new_keys:
-                base_status = "Bereinigt: keine Zitate mehr im Dokument gefunden."
+                base_status = "Aktualisiert: keine Zitate mehr im Dokument gefunden."
             else:
-                base_status = f"Bereinigt: {len(new_keys)} Zitat(e) im Dokument."
+                base_status = f"Aktualisiert: {len(new_keys)} Zitat(e) im Dokument."
 
-            # 4) Falls kein Bibliographie-Ziel: fertig
+            # 4) If no bibliography target exists, finish here
             if not has_bibliography_anchor():
                 def _finish_ui_no_anchor():
                     self.state = state
@@ -2440,8 +2454,9 @@ class PickerApp:
                 self.root.after(0, _finish_ui_no_anchor)
                 return
 
-            # 5) Bibliographie aktualisieren
-            update_bibliography(new_keys, style, cfg.api_key, cfg.library_id, cfg.library_type)
+            # 5) Update bibliography
+            if not bibliography_already_updated:
+                update_bibliography(new_keys, style, cfg.api_key, cfg.library_id, cfg.library_type)
 
             def _finish_ui():
                 self.state = state
@@ -2449,12 +2464,12 @@ class PickerApp:
 
             self.root.after(0, _finish_ui)
 
-        # neuer run_in_thread mit Name + ui_parent (Punkt 2)
-        run_in_thread("Cleanup", _work, ui_parent=self.root)
+        # Run document update workflow in background worker
+        run_in_thread("DocumentUpdate", _work, ui_parent=self.root)
             
 def main():
     logging.basicConfig(
-        level=logging.DEBUG,  # für COM-Stabilisierung sinnvoll; später ggf. INFO
+        level=logging.DEBUG,  # useful for COM stabilization; later possibly INFO
         format="%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
         handlers=[
             logging.StreamHandler(sys.stdout),
