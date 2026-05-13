@@ -82,6 +82,40 @@ Errors are raised as `ConfigError` and must be handled by the caller.
 
 ---
 
+## User-facing maintenance workflows
+
+As of `v0.1.0-alpha.18`, the main user-facing maintenance workflow is **Dokument aktualisieren**.
+
+This workflow is the primary path after users edit or delete citations in PowerPoint. Internally, it calls the same central cleanup/resync logic that maintains the relationship between visible citation text, stored citation metadata, and bibliography contents.
+
+### Dokument aktualisieren
+
+The **Dokument aktualisieren** workflow:
+
+- resynchronizes visible citations with stored citation state
+- removes deleted citations from the bibliography
+- clears the bibliography when no citations remain
+- tolerates missing bibliography targets
+- repairs APA/Harvard suffix disambiguation
+- runs IEEE renumbering
+- performs only the base citation-state resync for MLA and Chicago Author-Date
+
+This is the preferred user-facing workflow for document maintenance.
+
+### Bibliographie neu schreiben
+
+The **Bibliographie neu schreiben** workflow is secondary and bibliography-only.
+
+It rewrites the bibliography from the current stored citation state when a bibliography target exists. It is not the primary repair workflow and should not be presented as the main way to fix citation-state inconsistencies.
+
+It does not primarily:
+
+- change visible citations
+- repair APA/Harvard suffixes
+- renumber IEEE citations
+
+---
+
 ## Citation state model
 
 Citations are persisted in PowerPoint shape tags using `ZP_CITES`.
@@ -104,29 +138,33 @@ Important rules:
 
 ## Citation style validation status
 
-As of `v0.1.0-alpha.17`, the base citation style matrix has been retested manually.
+As of `v0.1.0-alpha.18`, the base citation style matrix has been retested manually.
 
 The scope of this validation was limited to the current alpha base functionality:
+
 - citation insertion
-- automatic bibliography update
-- manual bibliography update
+- bibliography target setup
+- bibliography-only rebuild via **Bibliographie neu schreiben**
+- document-level resync via **Dokument aktualisieren**
 - cleanup after partial citation deletion
 - full citation deletion and bibliography clearing
 - late bibliography anchor setup
 - missing bibliography anchor handling
+- persistence after save, close, and reopen
 - rough stylistic plausibility
 
 Locator and detail references such as pages, chapters, clauses, figures, and tables were not part of this validation.
 
 | Style | Status | Notes |
 | --- | --- | --- |
-| APA | Passed | Regression test passed. No regression found after IEEE and bibliography changes. |
-| IEEE | Passed | Technically alpha-stable and broadly IEEE-plausible. Locator-like manual additions such as `[1, Clause 1]` are not cleanup-stable yet. |
-| Chicago Author-Date | Passed | Technically stable and broadly plausible for the base alpha scope. |
-| Harvard | Passed | Technically stable and broadly plausible for the base alpha scope. |
-| MLA | Passed in alpha scope | Technically stable and no longer rendered as author-date for new inserts. Uses minimal MLA-plausible parenthetical labels. Locator/page support and full CSL-style validation remain future work. |
+| APA | Passed | Insert, bibliography rebuild, document update, a/b disambiguation, rollback after deletion, no-anchor behavior, full deletion, damaged citation handling, text box deletion, persistence, and log checks passed. |
+| IEEE | Passed | Insert, bibliography rebuild, document update, deletion and renumbering from first/middle/last positions, no-anchor behavior, damaged citation handling, inserting before existing citations, persistence, and log checks passed. Visible numbers and bibliography numbers remain consistent after **Dokument aktualisieren**. |
+| Chicago Author-Date | Passed | Insert, bibliography rebuild, document update, visible citation deletion, no-anchor behavior, full deletion, damaged citation handling, text box deletion, persistence, and log checks passed. |
+| Harvard | Passed | Insert, bibliography rebuild, document update, a/b disambiguation, rollback after deletion, no-anchor behavior, full deletion, damaged citation handling, text box deletion, persistence, and log checks passed. |
+| MLA | Passed in alpha scope | Insert, bibliography rebuild, document update, visible citation deletion, no-anchor behavior, full deletion, damaged citation handling, text box deletion, persistence, and log checks passed. Uses minimal MLA-plausible parenthetical labels. Locator/page support and full CSL-style validation remain future work. |
 
 Open follow-up topics:
+
 1. MLA disambiguation for identical visible labels remains future work.
 2. Locator/detail reference support must be designed as a separate feature block.
 3. Deeper CSL/style-engine validation remains future work.

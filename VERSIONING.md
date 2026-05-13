@@ -9,11 +9,11 @@ This repository uses a pragmatic, small-team-friendly versioning approach:
 
 **Tags are the source of truth.**
 
-Current public baseline: `v0.1.0-alpha.15`
+Current public baseline: `v0.1.0-alpha.18`
 
 Current development focus:
 - technical stabilization of citation and bibliography mechanics
-- IEEE alpha hardening completed in `v0.1.0-alpha.15`
+- document update workflow for citation-state resync and bibliography maintenance
 - persistent citation state and document resync reliability
 
 ---
@@ -66,7 +66,8 @@ Scope:
 - Picker / PowerPoint COM may still show intermittent issues
 
 Notes:
-- Migration to English-only comments and documentation has started
+- Migration of maintainer-facing comments, docstrings, and debug/log messages to English has started.
+- User-facing UI labels, status messages, and dialogs remain German.
 
 #### Hotfix patch releases (run blockers)
 If the project becomes non-runnable due to a packaging, environment, or import issue,
@@ -287,3 +288,63 @@ Notes:
 - No full CSL/style-engine refactor.
 - Existing MLA citations inserted with older versions are not migrated automatically.
 - MLA disambiguation for identical visible labels is not implemented yet.
+
+### v0.1.0-alpha.18 – Document update workflow and language cleanup
+
+**Scope**
+- User-facing workflow clarification for document-level maintenance.
+- Primary workflow button renamed to **Dokument aktualisieren**.
+- Secondary bibliography-only workflow exposed as **Bibliographie neu schreiben**.
+- Maintainer-facing comments, docstrings, and debug/log messages cleaned up toward English.
+- User-facing UI labels, status messages, and dialogs remain German.
+
+**Workflow changes**
+- **Dokument aktualisieren** is the primary workflow for resynchronizing visible citations with stored citation state.
+- It removes deleted citations from the bibliography.
+- It clears the bibliography when no citations remain.
+- It tolerates missing bibliography targets.
+- It repairs APA/Harvard suffix disambiguation.
+- It runs IEEE renumbering.
+- It performs only the base resync for MLA and Chicago Author-Date.
+
+**Bibliography-only workflow**
+- **Bibliographie neu schreiben** rewrites the bibliography when a bibliography target exists.
+- It is not the primary repair or cleanup workflow.
+- It does not primarily change visible citations.
+- APA/Harvard suffix repair is handled by the document update workflow.
+- IEEE renumbering is handled by the document update workflow.
+
+**Not included**
+- No COM or threading changes.
+- No PowerPoint anchor changes.
+- No Zotero Web API changes.
+- No bibliography-state refactor.
+- No CSL/style-engine refactor.
+- No locator/page support.
+
+**Static checks**
+- AST parse OK.
+- `py_compile` OK.
+
+**Manual retest result**
+- APA: PASS.
+- Harvard: PASS.
+- IEEE: PASS.
+- MLA: PASS.
+- Chicago Author-Date: PASS.
+
+**Overall result**
+- `v0.1.0-alpha.18` retest: PASS.
+
+**Verified risks**
+- Button workflow changed, but remains functionally stable.
+- Deleted citations are cleaned up correctly.
+- Bibliography is updated or cleared correctly.
+- APA/Harvard disambiguation remains correct.
+- IEEE renumbering remains correct.
+- MLA/Chicago base behavior remains correct.
+- Missing bibliography targets do not crash.
+- Persistence after save, close, and reopen works.
+- Maintainer-facing comments, docstrings, and debug/log messages are English.
+- German user-facing UI text is preserved.
+- Logs are clean.

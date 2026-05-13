@@ -7,10 +7,46 @@ They are enforced starting at `v0.1.0-beta.1`.
 
 ## 1) Language & style
 
-- **All comments and docstrings are in English**
-- Keep comments short and valuable:
-  - Prefer explaining *why* something is done
-  - Avoid restating obvious code (“what”)
+Starting with `v0.1.0-alpha.18`, the project uses a clear language split:
+
+- **Maintainer-facing text is English**
+- **User-facing text is German**
+
+### Maintainer-facing text
+
+Use English for:
+
+- comments
+- docstrings
+- debug messages
+- log messages
+- internal technical notes
+
+This keeps the codebase maintainable for contributors and aligns with Python/Open-Source conventions.
+
+### User-facing text
+
+Keep German for:
+
+- UI labels
+- status messages
+- message boxes
+- actionable error messages shown to users
+
+Examples:
+
+- `Dokument aktualisieren`
+- `Bibliographie neu schreiben`
+- `Bibliographie wird aktualisiert...`
+- `Kein Bibliographie-Ziel gesetzt.`
+- `Bitte wähle ein Textfeld aus.`
+
+### Comment style
+
+Keep comments short and valuable:
+
+- Prefer explaining *why* something is done
+- Avoid restating obvious code (“what”)
 
 ---
 
@@ -133,8 +169,9 @@ Rules:
 Certain coding quality rules map to versioning maturity levels:
 
 - **Alpha phases (`v0.x.0-alpha.N`):**
-  - English comments and docstrings are the target for new or touched code
-  - Existing non-English comments may still exist until the beta quality gate
+  - Maintainer-facing comments, docstrings, debug/log messages, and internal technical notes use English for new or touched code
+  - User-facing UI labels, status messages, dialogs, and actionable user errors remain German
+  - Existing non-English maintainer-facing text may still exist until the beta quality gate
   - Basic error handling with specific exceptions
   - Avoid obvious duplication (especially in citation style logic)
   - Config logic in one clearly named module
@@ -152,7 +189,8 @@ These requirements align with the gates defined in `VERSIONING.md`.
 
 Starting at `v0.1.0-beta.1`:
 - PR/review (even informal) checks for:
-  - English comments/docstrings
+  - maintainer-facing English comments, docstrings, debug/log messages, and internal technical notes
+  - German user-facing UI labels, status messages, dialogs, and actionable user errors
   - exception specificity
   - no new citation-style duplication
   - config changes follow constructor/factory pattern
