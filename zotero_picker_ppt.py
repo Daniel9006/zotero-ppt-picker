@@ -162,6 +162,72 @@ def _get_presentation():
     if not pres:
         raise RuntimeError("Keine aktive Präsentation.")
     return pres
+
+def _iter_shape_collection(shapes):
+    """Yield shapes from a PowerPoint Shapes collection defensively."""
+    try:
+        count = int(shapes.Count)
+    except Exception:
+        count = 0
+
+    if count:
+        for idx in range(1, count + 1):
+            try:
+                yield shapes.Item(idx)
+            except Exception:
+                continue
+        return
+
+    try:
+        for shp in shapes:
+            yield shp
+    except Exception:
+        return
+
+def _shape_has_usable_text_frame(shp) -> bool:
+    """Return True if the shape exposes a usable TextFrame."""
+    try:
+        if not getattr(shp, "HasTextFrame", False):
+            return False
+        _ = shp.TextFrame
+        return True
+    except Exception:
+        return False
+
+def _iter_notes_shapes(slide):
+    """Yield shapes from a slide's notes page, if available."""
+    try:
+        notes_page = slide.NotesPage
+        shapes = notes_page.Shapes
+    except Exception:
+        return
+
+    for shp in _iter_shape_collection(shapes):
+        yield shp
+
+def _iter_citation_shapes_for_slide(slide, include_notes: bool = True):
+    """Yield citation-relevant text shapes for one slide, including notes if requested."""
+    for shp in _iter_shape_collection(slide.Shapes):
+        if _shape_has_usable_text_frame(shp):
+            yield "slide", slide, shp
+
+    if include_notes:
+        for shp in _iter_notes_shapes(slide):
+            if _shape_has_usable_text_frame(shp):
+                yield "notes", slide, shp
+
+def iter_citation_shapes(include_notes: bool = True):
+    """
+    Yield citation-relevant text shapes in document order.
+
+    Order:
+    - normal slide shapes
+    - notes page shapes for the same slide
+    """
+    pres = _get_presentation()
+
+    for slide in pres.Slides:
+        yield from _iter_citation_shapes_for_slide(slide, include_notes=include_notes)
     
 def _activate_powerpoint():
     with com_context("_activate_powerpoint"):
@@ -252,7 +318,11 @@ def ppt_insert_text_at_cursor(s):
     """
     Inserts text strictly at the actual cursor position.
     Returns the shape corresponding to the active text cursor.
-    No fallback to shape selection to avoid unintended appending.
+
+    Notes pane fallback:
+    PowerPoint may expose Selection.TextRange in notes without a usable ShapeRange.
+    In that case, insert a temporary unique marker, find the shape containing it,
+    remove the marker, and return that shape.
     """
     with com_context("ppt_insert_text_at_cursor"):
         app = win32.Dispatch("PowerPoint.Application")
@@ -263,7 +333,6 @@ def ppt_insert_text_at_cursor(s):
         sel = win.Selection
         ppSelectionText = 3  # PowerPoint constant
 
-        # Only a real text cursor is allowed
         try:
             sel_type = sel.Type
         except Exception:
@@ -275,7 +344,6 @@ def ppt_insert_text_at_cursor(s):
                 "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
             )
 
-        # Retrieve TextRange
         try:
             tr = sel.TextRange
         except Exception:
@@ -287,26 +355,99 @@ def ppt_insert_text_at_cursor(s):
                 "Bitte klicke in das Textfeld (Cursor sichtbar) und versuche es erneut."
             )
 
-        # IMPORTANT: determine the shape before insertion
+        slide = None
+        try:
+            slide = sel.SlideRange(1)
+        except Exception:
+            try:
+                slide = win.View.Slide
+            except Exception:
+                slide = None
+
+        # First try the normal slide-pane path.
         shp = None
         try:
             sr = sel.ShapeRange
             if sr is not None and sr.Count >= 1:
                 candidate = sr.Item(1)
-                if candidate is not None and getattr(candidate, "HasTextFrame", False):
+                if candidate is not None and _shape_has_usable_text_frame(candidate):
                     shp = candidate
         except Exception:
             shp = None
 
+        # Fallback: walk TextRange parent chain.
         if shp is None:
+            try:
+                candidate = tr.Parent
+            except Exception:
+                candidate = None
+
+            for _ in range(6):
+                if candidate is None:
+                    break
+
+                if _shape_has_usable_text_frame(candidate):
+                    shp = candidate
+                    break
+
+                try:
+                    candidate = candidate.Parent
+                except Exception:
+                    break
+
+        # If we have a shape, use the old clean path.
+        if shp is not None:
+            tr.InsertAfter(s)
+            return shp
+
+        # Notes pane fallback:
+# Insert an invisible unique marker, find the actual text shape,
+        # remove the marker again, and return the found shape.
+        marker = f"⟦zp-insert:{uuid.uuid4().hex}⟧"
+        inserted = s + marker
+
+        try:
+            tr.InsertAfter(inserted)
+        except Exception:
             raise RuntimeError(
-                "Das Textfeld konnte vor dem Einfügen nicht eindeutig erkannt werden.\n"
+                "Der Text konnte nicht an der aktuellen Cursorposition eingefügt werden.\n"
                 "Bitte klicke erneut in das Textfeld und versuche es noch einmal."
             )
 
-        # Perform insertion
-        tr.InsertAfter(s)
-        return shp
+        found_shape = None
+
+        if slide is not None:
+            search_shapes = _iter_citation_shapes_for_slide(slide, include_notes=True)
+        else:
+            _debug("Insert fallback: no active slide resolved, scanning all citation shapes")
+            search_shapes = iter_citation_shapes(include_notes=True)
+
+        for _scope, _slide, candidate in search_shapes:
+            try:
+                txt = candidate.TextFrame.TextRange.Text or ""
+            except Exception:
+                continue
+
+            if marker not in txt:
+                continue
+
+            try:
+                candidate.TextFrame.TextRange.Text = txt.replace(marker, "", 1)
+            except Exception:
+                pass
+
+            found_shape = candidate
+            break
+
+        if found_shape is None:
+            _debug("Insert fallback failed: temporary marker was not found in slide or notes shapes")
+            raise RuntimeError(
+                "Das Textfeld konnte nach dem Einfügen nicht eindeutig erkannt werden.\n"
+                "Das Zitat wurde möglicherweise eingefügt, aber nicht im Citation-State gespeichert.\n"
+                "Bitte klicke erneut in das Notizen-Textfeld und versuche es noch einmal."
+            )
+
+        return found_shape
     
 def _copy_font(src_font, dst_font):
     """Copies as many font properties as possible in a robust way."""
@@ -410,21 +551,18 @@ def _make_sig(item):
     author, year = _author_year_parts(item)
     year = year or "n.d."   # important: otherwise the signature would only contain the author
     return f"{author}|{year}"
-    
+
 def collect_all_cites_by_key():
     with com_context("collect_all_cites_by_key"):
-        pres = _get_presentation()
         by_key = {}
-        for slide in pres.Slides:
-            for shp in slide.Shapes:
-                try:
-                    if getattr(shp, "HasTextFrame", False):
-                        for c in prune_cites_in_shape(shp):
-                            k = c.get("key")
-                            if k and k not in by_key:
-                                by_key[k] = c
-                except Exception:
-                    continue
+        for _scope, _slide, shp in iter_citation_shapes():
+            try:
+                for c in prune_cites_in_shape(shp):
+                    k = c.get("key")
+                    if k and k not in by_key:
+                        by_key[k] = c
+            except Exception:
+                continue
         return by_key
     
 def _replace_all(text, old, new):
@@ -443,31 +581,27 @@ def normalize_sig_group(sig):
     - stored citation tags
     """
     with com_context(f"normalize_sig_group sig={sig}"):
-        pres = _get_presentation()
 
         # 1) Collect all occurrences of this signature via tags
-        occ = []  # (slide, shp, idx, key, old_cite)
-        for slide in pres.Slides:
-            for shp in slide.Shapes:
-                try:
-                    if not getattr(shp, "HasTextFrame", False):
-                        continue
-                    arr = prune_cites_in_shape(shp)
-                    for i, c in enumerate(arr):
-                        if c.get("sig") == sig:
-                            k = c.get("key")
-                            oc = c.get("cite") or ""
-                            if k and oc:
-                                occ.append((slide, shp, i, k, oc))
-                except Exception:
-                    continue
+        occ = []  # (scope, slide, shp, idx, key, old_cite)
+        for scope, slide, shp in iter_citation_shapes():
+            try:
+                arr = prune_cites_in_shape(shp)
+                for i, c in enumerate(arr):
+                    if c.get("sig") == sig:
+                        k = c.get("key")
+                        oc = c.get("cite") or ""
+                        if k and oc:
+                            occ.append((scope, slide, shp, i, k, oc))
+            except Exception:
+                continue
 
         if not occ:
             return
 
         # Stable order: first occurrence in the document
         keys_in_order = []
-        for _, _, _, k, _ in occ:
+        for _, _, _, _, k, _ in occ:
             if k not in keys_in_order:
                 keys_in_order.append(k)
 
@@ -478,7 +612,7 @@ def normalize_sig_group(sig):
 
         # Remember one base citation without suffix per key
         base_by_key = {}
-        for _, _, _, k, oc in occ:
+        for _, _, _, _, k, oc in occ:
             if k not in base_by_key:
                 base_by_key[k] = strip_suffix(oc)
 
@@ -489,7 +623,7 @@ def normalize_sig_group(sig):
         if len(keys_in_order) == 1:
             # Rollback case: remove a/b suffix
             k = keys_in_order[0]
-            new_by_key[k] = base_by_key.get(k) or strip_suffix(occ[0][4])
+            new_by_key[k] = base_by_key.get(k) or strip_suffix(occ[0][5])
         else:
             # Assign a/b/... suffixes
             for idx, k in enumerate(keys_in_order):
@@ -497,14 +631,14 @@ def normalize_sig_group(sig):
                 new_by_key[k] = base[:-1] + letters[idx] + ")"
 
         # 3) Replace sequentially per shape without using the shape object as a dict key
-        by_shape = {}  # (slide_id, shape_id) -> {"shape": shp, "items":[(idx, key, old_cite),...]}
-        for slide, shp, i, k, old_cite in occ:
+        by_shape = {}  # (scope, slide_id, shape_id) -> {"shape": shp, "items":[(idx, key, old_cite),...]}
+        for scope, slide, shp, i, k, old_cite in occ:
             try:
                 slide_id = int(slide.SlideID)
                 shape_id = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
             except Exception:
                 continue
-            key = (slide_id, shape_id)
+            key = (scope, slide_id, shape_id)
             by_shape.setdefault(key, {"shape": shp, "items": []})["items"].append((i, k, old_cite))
 
         for _, pack in by_shape.items():
@@ -538,20 +672,16 @@ def normalize_sig_group(sig):
 
 def renormalize_all_sig_groups():
     with com_context("renormalize_all_sig_groups"):
-        pres = _get_presentation()
         sigs = []
-        for slide in pres.Slides:
-            for shp in slide.Shapes:
-                try:
-                    if not getattr(shp, "HasTextFrame", False):
-                        continue
-                    arr = prune_cites_in_shape(shp)
-                    for c in arr:
-                        s = c.get("sig")
-                        if s and s not in sigs:
-                            sigs.append(s)
-                except Exception:
-                    continue
+        for _scope, _slide, shp in iter_citation_shapes():
+            try:
+                arr = prune_cites_in_shape(shp)
+                for c in arr:
+                    s = c.get("sig")
+                    if s and s not in sigs:
+                        sigs.append(s)
+            except Exception:
+                continue
 
         for s in sigs:
             normalize_sig_group(s)
@@ -736,18 +866,15 @@ def _save_shape_cites(shp, arr):
 # LEGACY/OPTIONAL: zero-width markers, currently unused for APA/Harvard but may be useful later
 def collect_all_cite_texts():
     with com_context("collect_all_cite_texts"):
-        pres = _get_presentation()
         out = []
-        for slide in pres.Slides:
-            for shp in slide.Shapes:
-                try:
-                    if getattr(shp, "HasTextFrame", False):
-                        for c in prune_cites_in_shape(shp):
-                            t = (c.get("cite") or "").strip()
-                            if t:
-                                out.append(t)
-                except Exception:
-                    continue
+        for _scope, _slide, shp in iter_citation_shapes():
+            try:
+                for c in prune_cites_in_shape(shp):
+                    t = (c.get("cite") or "").strip()
+                    if t:
+                        out.append(t)
+            except Exception:
+                continue
         return out
 
 def prune_cites_in_shape(shp):
@@ -1565,58 +1692,46 @@ def _collect_ieee_cites_in_shape(shp, arr=None):
     return txt, positioned, fallback
 
 def build_ieee_numbering_from_document():
-    """Build stable IEEE numbering from stored cite tags in visible document order."""
+    """Build stable IEEE numbering from stored cite tags in document order."""
     with com_context("build_ieee_numbering_from_document"):
-        pres = _get_presentation()
         numbering = {}
         n = 1
 
-        for slide in pres.Slides:
-            for shp in slide.Shapes:
-                try:
-                    if not getattr(shp, "HasTextFrame", False):
-                        continue
+        for _scope, _slide, shp in iter_citation_shapes():
+            try:
+                arr = prune_cites_in_shape(shp)
+                _, positioned, fallback = _collect_ieee_cites_in_shape(shp, arr)
 
-                    arr = prune_cites_in_shape(shp)
-                    _, positioned, fallback = _collect_ieee_cites_in_shape(shp, arr)
-
-                    for hit in positioned + fallback:
-                        c = hit["record"]
-                        key = c.get("key")
-                        if key and key not in numbering:
-                            numbering[key] = n
-                            n += 1
-
-                except Exception:
-                    continue
+                for hit in positioned + fallback:
+                    c = hit["record"]
+                    key = c.get("key")
+                    if key and key not in numbering:
+                        numbering[key] = n
+                        n += 1
+            except Exception:
+                continue
 
         return numbering
 
 def resync_bibliography_keys_from_document(state=None):
     with com_context("resync_bibliography_keys_from_document"):
-        pres = _get_presentation()
         keys = []
 
-        for slide in pres.Slides:
-            for shp in slide.Shapes:
-                try:
-                    if shp.HasTextFrame:
-                        kept = prune_cites_in_shape(shp)
-                        for c in kept:
-                            k = c.get("key")
-                            if k and k not in keys:
-                                keys.append(k)
-                except Exception:
-                    continue
+        for _scope, _slide, shp in iter_citation_shapes():
+            try:
+                kept = prune_cites_in_shape(shp)
+                for c in kept:
+                    k = c.get("key")
+                    if k and k not in keys:
+                        keys.append(k)
+            except Exception:
+                continue
 
-        cur = load_doc_state()
-        cur["bib_keys"] = keys
-        save_doc_state(cur)
+        if state is None:
+            state = load_doc_state()
 
-        if state is not None:
-            state.clear()
-            state.update(cur)
-
+        state["bib_keys"] = keys
+        save_doc_state(state)
         return keys
 
 def insert_ieee_placeholder(key, *, parent=None) -> bool:
@@ -1661,66 +1776,64 @@ def renumber_ieee_and_update(*, parent=None) -> bool:
 
         numbering = build_ieee_numbering_from_document()
 
-        pres = _get_presentation()
-        for slide in pres.Slides:
-            for shp in slide.Shapes:
-                try:
-                    if not getattr(shp, "HasTextFrame", False):
+        for _scope, _slide, shp in iter_citation_shapes():
+            try:
+                if not getattr(shp, "HasTextFrame", False):
+                    continue
+
+                tr = shp.TextFrame.TextRange
+                arr = prune_cites_in_shape(shp)
+                txt, positioned, fallback = _collect_ieee_cites_in_shape(shp, arr)
+
+                replacements = []
+                tags_changed = False
+
+                for hit in positioned:
+                    c = hit["record"]
+                    key = c.get("key")
+                    if not key or key not in numbering:
                         continue
 
-                    tr = shp.TextFrame.TextRange
-                    arr = prune_cites_in_shape(shp)
-                    txt, positioned, fallback = _collect_ieee_cites_in_shape(shp, arr)
+                    old_text = hit["old_text"]
+                    new_cite = f"[{numbering[key]}]"
 
-                    replacements = []
-                    tags_changed = False
+                    if old_text and old_text != new_cite:
+                        replacements.append((hit["start"], hit["end"], new_cite))
 
-                    for hit in positioned:
-                        c = hit["record"]
-                        key = c.get("key")
-                        if not key or key not in numbering:
-                            continue
+                    if c.get("cite") != new_cite or c.get("style") != "ieee":
+                        c["cite"] = new_cite
+                        c["style"] = "ieee"
+                        tags_changed = True
 
-                        old_text = hit["old_text"]
-                        new_cite = f"[{numbering[key]}]"
+                # Fallback records have no reliable text position, but their tags
+                # can still be normalized if their key is part of the numbering.
+                for hit in fallback:
+                    c = hit["record"]
+                    key = c.get("key")
+                    if not key or key not in numbering:
+                        continue
 
-                        if old_text and old_text != new_cite:
-                            replacements.append((hit["start"], hit["end"], new_cite))
+                    new_cite = f"[{numbering[key]}]"
+                    if c.get("cite") != new_cite or c.get("style") != "ieee":
+                        c["cite"] = new_cite
+                        c["style"] = "ieee"
+                        tags_changed = True
 
-                        if c.get("cite") != new_cite or c.get("style") != "ieee":
-                            c["cite"] = new_cite
-                            c["style"] = "ieee"
-                            tags_changed = True
+                if replacements:
+                    for start, end, new_cite in sorted(
+                        replacements,
+                        key=lambda item: item[0],
+                        reverse=True,
+                    ):
+                        txt = txt[:start] + new_cite + txt[end:]
 
-                    # Fallback records have no reliable text position, but their tags
-                    # can still be normalized if their key is part of the numbering.
-                    for hit in fallback:
-                        c = hit["record"]
-                        key = c.get("key")
-                        if not key or key not in numbering:
-                            continue
+                    tr.Text = txt
 
-                        new_cite = f"[{numbering[key]}]"
-                        if c.get("cite") != new_cite or c.get("style") != "ieee":
-                            c["cite"] = new_cite
-                            c["style"] = "ieee"
-                            tags_changed = True
+                if replacements or tags_changed:
+                    _save_shape_cites(shp, arr)
 
-                    if replacements:
-                        for start, end, new_cite in sorted(
-                            replacements,
-                            key=lambda item: item[0],
-                            reverse=True,
-                        ):
-                            txt = txt[:start] + new_cite + txt[end:]
-
-                        tr.Text = txt
-
-                    if replacements or tags_changed:
-                        _save_shape_cites(shp, arr)
-
-                except Exception:
-                    continue
+            except Exception:
+                continue
 
         state["bib_keys"] = list(numbering.keys())
         save_doc_state(state)
@@ -2348,10 +2461,10 @@ class PickerApp:
     def on_document_update(self):
         """
         Primary user workflow:
-        - resyncs visible citations with stored citation metadata
+        - resyncs slide and notes citations with stored citation metadata
         - applies style-specific repairs where needed:
             - APA/Harvard: author-year disambiguation rollback/rebuild
-            - IEEE: visible citation renumbering
+            - IEEE: slide and notes citation renumbering
         - updates the bibliography if a bibliography target exists
         """
         return self.on_cleanup()
@@ -2432,7 +2545,8 @@ class PickerApp:
                 renormalize_all_sig_groups()
                 _debug("DocumentUpdate: renormalize_all_sig_groups done")
                 new_keys = resync_bibliography_keys_from_document(state)
-            # 2b) IEEE: renumber visible citations and update stored cite tags
+
+            # 2b) IEEE: renumber slide and notes citations and update stored cite tags
             if style == "ieee":
                 had_bibliography_anchor = has_bibliography_anchor()
                 ieee_update_ok = renumber_ieee_and_update(parent=self.root)
