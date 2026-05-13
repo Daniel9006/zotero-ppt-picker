@@ -15,6 +15,7 @@ zotero-ppt-picker/
 ├── docs/
 │   ├── development.md        # developer and architecture documentation
 │   ├── debugging.md          # debugging notes and known runtime issues
+│   └── testing.md            # manual alpha retest checklist
 │   └── mac_linux.md          # macOS / Linux notes and limitations
 ├── test_zotero_config.py     # standalone test for config and credential dialog
 ├── requirements.txt          # Python dependencies
@@ -172,6 +173,10 @@ Open follow-up topics:
 ---
 
 ## Testing
+
+Manual PowerPoint alpha retests are documented in `docs/testing.md`.
+Use that checklist before tagging alpha releases and after citation or
+bibliography workflow changes.
 
 Recommended local tests:
 

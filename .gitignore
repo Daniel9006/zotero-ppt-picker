@@ -1,9 +1,24 @@
-# Python virtual environment
+﻿# Python virtual environments
 .venv/
+venv/
+env/
 
-# Python bytecode
+# Python bytecode / caches
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build / packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Coverage artifacts
+.coverage
+htmlcov/
 
 # Environment / secrets
 .env
@@ -12,6 +27,28 @@ __pycache__/
 # Local credential / API key files (never commit)
 Zotero PPT API Key.txt
 
+# Logs
+zotero_ppt.log
+*.log
+logs/
+
+# Local manual test artifacts
+tmp/
+temp/
+scratch/
+test-output/
+manual-test-output/
+
+# Office / PowerPoint temporary lock files
+~$*.ppt*
+~$*.doc*
+~$*.xls*
+
+# Generic local temp files
+*.tmp
+*.bak
+
 # OS files
 .DS_Store
 Thumbs.db
+desktop.ini

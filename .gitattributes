@@ -1,0 +1,39 @@
+# Default: let Git detect text files, but avoid unsafe binary conversion.
+* text=auto
+
+# Git metadata/config files use LF in the repository.
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+
+# Source and documentation files use LF in the repository.
+*.py   text eol=lf
+*.pyw  text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+# Windows command files may use CRLF for local execution.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Office / PowerPoint files are binary.
+*.ppt  binary
+*.pptx binary
+*.pptm binary
+*.potx binary
+*.potm binary
+*.ppsx binary
+*.docx binary
+*.xlsx binary
+
+# Common binary assets.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary

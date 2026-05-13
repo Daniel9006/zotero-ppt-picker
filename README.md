@@ -11,6 +11,7 @@ This repository contains additional documentation for developers and
 platform-specific topics:
 
 - Developer notes and internal details: `docs/development.md`
+- Manual alpha retest checklist: `docs/testing.md`
 - Debugging and known runtime issues: `docs/debugging.md`
 - macOS / Linux notes and limitations: `docs/mac_linux.md`
 
