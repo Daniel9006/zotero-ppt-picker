@@ -12,15 +12,14 @@ Option Explicit
 
 Private Const PICKER_LAUNCHER_PATH As String = "C:\Path\To\zotero-ppt-picker\scripts\start_picker.cmd"
 
-Public Sub LaunchZoteroPickerRibbon(control As Object)
+Public Sub LaunchZoteroPickerRibbon(control As IRibbonControl)
     ' Ribbon button callback used by customUI14.xml.
-    ' Late binding avoids compile/runtime issues if IRibbonControl is not resolved
-    ' in a local PowerPoint VBA project.
     LaunchZoteroPicker
 End Sub
 
 Public Sub LaunchZoteroPicker()
     Dim launcherPath As String
+    Dim runner As Object
     launcherPath = PICKER_LAUNCHER_PATH
 
     If Len(Dir$(launcherPath, vbNormal)) = 0 Then
@@ -33,7 +32,8 @@ Public Sub LaunchZoteroPicker()
     End If
 
     On Error GoTo LaunchFailed
-    Shell "cmd.exe /c """ & launcherPath & """", vbNormalFocus
+    Set runner = CreateObject("WScript.Shell")
+    runner.Run """" & launcherPath & """", 0, False
     Exit Sub
 
 LaunchFailed:
