@@ -12,15 +12,10 @@ Option Explicit
 
 Private Const PICKER_LAUNCHER_PATH As String = "C:\Path\To\zotero-ppt-picker\scripts\start_picker.cmd"
 
-Private gRibbon As IRibbonUI
-
-Public Sub RibbonOnLoad(ribbon As IRibbonUI)
-    ' Ribbon callback used by customUI14.xml.
-    Set gRibbon = ribbon
-End Sub
-
-Public Sub LaunchZoteroPickerRibbon(control As IRibbonControl)
+Public Sub LaunchZoteroPickerRibbon(control As Object)
     ' Ribbon button callback used by customUI14.xml.
+    ' Late binding avoids compile/runtime issues if IRibbonControl is not resolved
+    ' in a local PowerPoint VBA project.
     LaunchZoteroPicker
 End Sub
 
