@@ -445,9 +445,25 @@ It prefers `.venv\Scripts\pythonw.exe`, with fallback options for `.venv\Scripts
 - No COM/threading refactor.
 - No locator/page support.
 
-**Manual retest scope**
-- Start via `scripts/start_picker.cmd` from PowerShell/CMD.
-- Start from a different working directory.
-- Start through the PowerPoint VBA macro.
-- Verify understandable errors for wrong launcher paths and missing Python/venv setup.
-- Verify unchanged picker behavior after launcher start, including slide citation insert, notes citation insert, **Dokument aktualisieren**, **Bibliographie neu schreiben**, and log inspection.
+**Manual retest result**
+- Static checks: PASS.
+- `git diff --check`: PASS.
+- No changes to `zotero_picker_ppt.py`: PASS.
+- Start via `scripts/start_picker.cmd` from PowerShell: PASS.
+- Start via `scripts/start_picker.cmd` from CMD: PASS.
+- Start from a different working directory: PASS.
+- Start through the PowerPoint VBA macro: PASS.
+- Wrong VBA launcher path shows an understandable German error message: PASS.
+- APA slide citation after launcher start: PASS.
+- APA notes citation after launcher start: PASS.
+- Automatic bibliography update after notes citation insert: PASS.
+- **Dokument aktualisieren** after launcher start: PASS.
+- **Bibliographie neu schreiben** after launcher start: PASS.
+- Log inspection: PASS.
+
+**Not destructively tested**
+- Missing `.venv` / missing Python fallback behavior.
+- Reason: this would require temporary environment manipulation and may be masked by `pyw.exe` / `py.exe` fallbacks on the test system.
+
+**Overall result**
+- `v0.1.0-alpha.20 – PowerPoint picker launcher`: release-ready.
