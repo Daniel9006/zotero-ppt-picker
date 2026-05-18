@@ -4,12 +4,12 @@ This document defines the reusable manual retest checklist for alpha releases of
 `zotero-ppt-picker`.
 
 The project currently relies on manual PowerPoint retests for citation,
-bibliography, persistence, and user-interface behavior. It does not yet include a
-full automated test suite for PowerPoint COM integration.
+bibliography, persistence, launcher behavior, and user-interface behavior. It
+does not yet include a full automated test suite for PowerPoint COM integration.
 
 Use this checklist before tagging a new alpha release and after small
 stabilization changes that may affect citation state, bibliography generation,
-PowerPoint object handling, or visible user feedback.
+PowerPoint object handling, launcher startup, or visible user feedback.
 
 ---
 
@@ -31,13 +31,15 @@ This checklist covers:
 - bibliography target handling on normal slides
 - the primary document update workflow with slide and notes citations
 - the secondary bibliography rewrite workflow with slide and notes citations
+- PowerPoint launcher startup checks when launcher code or documentation changes
 
 This checklist does not cover:
 
 - new citation styles
 - separate notes bibliography mode
 - locator or page support
-- PowerPoint launcher or Ribbon integration
+- full PowerPoint Ribbon implementation
+- signed PPAM deployment
 - CSL/style-engine refactoring
 - COM/threading refactors unless they were explicitly changed
 - packaging or installer validation
@@ -54,6 +56,7 @@ From the repository root:
 ```powershell
 python -c "import ast, pathlib; ast.parse(pathlib.Path('zotero_picker_ppt.py').read_text(encoding='utf-8')); print('AST parse OK')"
 python -m py_compile zotero_picker_ppt.py
+git diff --check
 ```
 
 Expected result:
@@ -61,6 +64,7 @@ Expected result:
 ```text
 AST parse OK
 py_compile OK
+git diff --check clean
 ```
 
 If the AST command is not used in the local workflow, the minimum required static
@@ -68,6 +72,7 @@ check is:
 
 ```powershell
 python -m py_compile zotero_picker_ppt.py
+git diff --check
 ```
 
 ---
@@ -84,11 +89,13 @@ Record the test environment for each alpha retest.
 | Python version |  |
 | Zotero library type | user / group |
 | Test presentation | new / existing / copied fixture |
+| Launcher path tested | direct / cmd / VBA |
 | Tester |  |
 | Date |  |
 
 Use a copied PowerPoint file for destructive tests such as citation deletion,
-text box deletion, and intentionally corrupted visible citation text.
+text box deletion, intentionally corrupted visible citation text, and launcher
+failure-path tests.
 
 ---
 
@@ -143,6 +150,42 @@ Expected base result:
 - bibliography behavior is deterministic
 - citation metadata survives save / close / reopen where supported
 - no unexpected traceback appears in the log
+
+---
+
+## PowerPoint Launcher Checks
+
+Use these checks for releases that add or modify launcher behavior.
+
+| Done | Check | Expected result |
+| --- | --- | --- |
+| [ ] | Start `scripts/start_picker.cmd` from PowerShell. | Picker starts without requiring a manual `cd` into another folder. |
+| [ ] | Start `scripts/start_picker.cmd` from `cmd.exe`. | Picker starts through the command launcher. |
+| [ ] | Start the launcher from another working directory. | The launcher resolves the repository root relative to itself. |
+| [ ] | Import or copy `powerpoint/LaunchZoteroPicker.bas`. | The VBA module imports or copies without syntax changes. |
+| [ ] | Set `PICKER_LAUNCHER_PATH` to the local `scripts/start_picker.cmd`. | The macro points to the correct local launcher file. |
+| [ ] | Run `LaunchZoteroPicker` from PowerPoint with an active presentation. | The picker starts from PowerPoint. |
+| [ ] | Temporarily set a wrong launcher path in the VBA macro. | A clear German message reports that the launcher was not found. |
+| [ ] | Temporarily test missing `.venv` or missing Python path. | The command launcher shows a clear German error message. |
+| [ ] | Insert a citation on a normal slide after launcher start. | Existing picker behavior is unchanged. |
+| [ ] | Insert a citation in PowerPoint notes after launcher start. | Existing notes citation behavior is unchanged. |
+| [ ] | Run **Dokument aktualisieren** after launcher start. | Existing document update behavior is unchanged. |
+| [ ] | Run **Bibliographie neu schreiben** after launcher start. | Existing bibliography rewrite behavior is unchanged. |
+| [ ] | Inspect `zotero_ppt.log`. | No unexpected launcher-related or picker-related errors appear. |
+
+Classify failures as one of:
+
+- launcher problem
+- PowerPoint/VBA path problem
+- Python/virtual-environment problem
+- existing picker/Zotero/network problem
+
+Expected result:
+
+```text
+PowerPoint launcher: passed / failed
+Notes:
+```
 
 ---
 
@@ -314,6 +357,7 @@ stale German debug or maintainer logs
 Insert fallback failed
 NotesPage
 notes fallback
+launcher
 ```
 
 Expected result:
@@ -328,6 +372,7 @@ Expected result:
 - no unexpected `Insert fallback failed`
 - no notes-specific traceback
 - no notes-specific citation-state loss after save/close/reopen
+- no unexpected launcher-related startup issue
 
 Known or intentionally tested error paths should be recorded with context.
 
@@ -342,9 +387,11 @@ Use this rule during manual review.
 | User-facing UI labels | German |
 | User-facing status text | German |
 | User-facing dialogs | German |
+| User-facing launcher and VBA error messages | German |
 | Maintainer-facing comments | English |
 | Maintainer-facing docstrings | English |
 | Maintainer-facing logs/debug text | English |
+| Maintainer-facing documentation | English |
 
 ---
 
@@ -356,12 +403,22 @@ Use the following template in release notes or release preparation notes.
 Manual test result:
 - AST parse OK
 - py_compile OK
+- git diff --check OK
+- PowerPoint launcher passed in alpha scope
 - APA passed in alpha scope
 - Harvard passed in alpha scope
 - IEEE passed in alpha scope
 - MLA passed in alpha scope
 - Chicago Author-Date passed in alpha scope
 - Log inspection passed
+
+PowerPoint launcher:
+- scripts/start_picker.cmd from PowerShell passed / failed
+- scripts/start_picker.cmd from CMD passed / failed
+- start from another working directory passed / failed
+- PowerPoint VBA macro start passed / failed
+- wrong launcher path error handling passed / failed
+- missing .venv/Python error handling passed / failed
 
 Notes citation support:
 - Insert on slides and in notes passed / failed
@@ -373,7 +430,9 @@ Notes citation support:
 Known limitations:
 - Separate notes bibliography mode is not included
 - Locator/page support is not included
-- PowerPoint launcher/Ribbon integration is not included
+- Full Ribbon/Add-in integration is not included
+- Signed PPAM deployment is not included
+- EXE packaging and installer support are not included
 - No full CSL/style-engine validation
 - No automated PowerPoint COM test suite
 ```
@@ -386,6 +445,7 @@ Use this template when a manual retest fails.
 
 ```text
 Failure:
+Failure class: launcher / VBA path / Python environment / picker / Zotero / network / unknown
 Style:
 Scenario:
 Release / commit:
