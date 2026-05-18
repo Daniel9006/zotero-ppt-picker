@@ -15,6 +15,7 @@ Current development focus:
 - technical stabilization of citation and bibliography mechanics
 - notes citation support for document-wide citation scans and bibliography maintenance
 - persistent citation state and document resync reliability
+- minimal PowerPoint-side launcher support for the existing picker
 
 ---
 
@@ -64,6 +65,7 @@ Scope:
 - APA citation style implemented
 - IEEE technical alpha support introduced for numeric citation processing
 - Picker / PowerPoint COM may still show intermittent issues
+- Minimal Windows/PowerPoint launcher support may be added as small alpha features
 
 Notes:
 - Migration of maintainer-facing comments, docstrings, and debug/log messages to English has started.
@@ -408,3 +410,60 @@ Notes:
 
 **Overall result**
 - `v0.1.0-alpha.19 – Notes citation support`: release-ready.
+
+### v0.1.0-alpha.20 – PowerPoint picker launcher
+
+**Scope**
+- Minimal Windows/PowerPoint launcher for starting the existing picker from PowerPoint.
+- Added `scripts/start_picker.cmd` as the repository-relative Windows command launcher.
+- Added `powerpoint/LaunchZoteroPicker.bas` as a PowerPoint VBA macro template.
+- Added `docs/powerpoint_launcher.md` with setup, usage, and troubleshooting notes.
+- Documented the launcher architecture in README, development notes, testing notes, and release documentation.
+
+**Architecture**
+
+```text
+PowerPoint VBA macro → scripts/start_picker.cmd → zotero_picker_ppt.py
+```
+
+The launcher changes into the repository root before starting the existing picker.
+It prefers `.venv\Scripts\pythonw.exe`, with fallback options for `.venv\Scripts\python.exe`, `pyw.exe`, and `py.exe`.
+
+**Behavior**
+- The existing Python picker remains the only citation and bibliography implementation.
+- The launcher does not modify Zotero configuration files.
+- The launcher does not change citation state handling, notes support, bibliography generation, or document update behavior.
+- User-facing launcher and VBA error messages are German.
+
+**Not included**
+- No full Office Ribbon implementation.
+- No signed PPAM deployment.
+- No EXE packaging.
+- No installer.
+- No citation or bibliography logic changes.
+- No Zotero configuration changes.
+- No COM/threading refactor.
+- No locator/page support.
+
+**Manual retest result**
+- Static checks: PASS.
+- `git diff --check`: PASS.
+- No changes to `zotero_picker_ppt.py`: PASS.
+- Start via `scripts/start_picker.cmd` from PowerShell: PASS.
+- Start via `scripts/start_picker.cmd` from CMD: PASS.
+- Start from a different working directory: PASS.
+- Start through the PowerPoint VBA macro: PASS.
+- Wrong VBA launcher path shows an understandable German error message: PASS.
+- APA slide citation after launcher start: PASS.
+- APA notes citation after launcher start: PASS.
+- Automatic bibliography update after notes citation insert: PASS.
+- **Dokument aktualisieren** after launcher start: PASS.
+- **Bibliographie neu schreiben** after launcher start: PASS.
+- Log inspection: PASS.
+
+**Not destructively tested**
+- Missing `.venv` / missing Python fallback behavior.
+- Reason: this would require temporary environment manipulation and may be masked by `pyw.exe` / `py.exe` fallbacks on the test system.
+
+**Overall result**
+- `v0.1.0-alpha.20 – PowerPoint picker launcher`: release-ready.

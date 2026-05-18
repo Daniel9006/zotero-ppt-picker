@@ -12,6 +12,7 @@ platform-specific topics:
 
 - Developer notes and internal details: `docs/development.md`
 - Manual alpha retest checklist: `docs/testing.md`
+- PowerPoint launcher setup: `docs/powerpoint_launcher.md`
 - Debugging and known runtime issues: `docs/debugging.md`
 - macOS / Linux notes and limitations: `docs/mac_linux.md`
 
@@ -117,6 +118,22 @@ This method is intended for advanced users only.
    python zotero_picker_ppt.py
    ```
 5. Select a reference and insert it
+
+### Optional PowerPoint launcher
+
+On Windows, the picker can also be started from PowerPoint through a small VBA
+macro and command launcher:
+
+```text
+PowerPoint VBA -> scripts/start_picker.cmd -> zotero_picker_ppt.py
+```
+
+This is a minimal launcher workflow, not a full Office add-in, signed PPAM,
+installer, or EXE package. The existing Python picker remains unchanged and
+continues to own citation insertion, bibliography updates, notes support, and
+Zotero configuration handling.
+
+See `docs/powerpoint_launcher.md` for setup and troubleshooting.
 
 To update citations and bibliography:
 
