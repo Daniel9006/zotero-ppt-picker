@@ -7,9 +7,22 @@ Option Explicit
 ' Installation:
 ' 1. Import this .bas file into the PowerPoint VBA editor.
 ' 2. Adjust PICKER_LAUNCHER_PATH to your local repository path.
-' 3. Run LaunchZoteroPicker from PowerPoint, or assign it to a button.
+' 3. Run LaunchZoteroPicker from PowerPoint, assign it to a button,
+'    or connect it to the custom Ribbon XML callback.
 
 Private Const PICKER_LAUNCHER_PATH As String = "C:\Path\To\zotero-ppt-picker\scripts\start_picker.cmd"
+
+Private gRibbon As IRibbonUI
+
+Public Sub RibbonOnLoad(ribbon As IRibbonUI)
+    ' Ribbon callback used by customUI14.xml.
+    Set gRibbon = ribbon
+End Sub
+
+Public Sub LaunchZoteroPickerRibbon(control As IRibbonControl)
+    ' Ribbon button callback used by customUI14.xml.
+    LaunchZoteroPicker
+End Sub
 
 Public Sub LaunchZoteroPicker()
     Dim launcherPath As String
