@@ -127,6 +127,36 @@ When the user clicks **Picker starten**:
 
 ---
 
+## Manual retest result
+
+Result for the current alpha scope:
+
+- Static checks: PASS.
+- `git diff --check`: PASS.
+- No changes to `zotero_picker_ppt.py`: PASS.
+- Local `.pptm` with Ribbon XML opens without startup callback error: PASS.
+- `Zotero` Ribbon tab appears in the local `.pptm`: PASS.
+- `Picker starten` button starts the existing picker: PASS.
+- Command-window flash was removed by hiding the launcher process from VBA: PASS.
+- `.ppam` add-in can be created and loaded manually: PASS.
+- `Zotero` Ribbon tab appears in a normal `.pptx`: PASS.
+- `Picker starten` starts the existing picker from a normal `.pptx`: PASS.
+- APA slide citation after Ribbon/PPAM start: PASS.
+- Bibliography target and update after Ribbon/PPAM start: PASS.
+- APA notes citation after Ribbon/PPAM start: PASS.
+- Automatic bibliography update after notes citation insert: PASS.
+- PowerPoint restart persistence: PASS.
+- Log inspection: PASS.
+
+Known test notes:
+
+- The `.ppam` file was created manually and is not committed to the repository.
+- The add-in was tested as an unsigned local add-in.
+- Only the first Ribbon button, **Picker starten**, is included in this scope.
+- Direct Ribbon buttons for **Dokument aktualisieren**, **Bibliographie neu schreiben**, and **Bibliographie-Ziel festlegen** remain follow-up work.
+
+---
+
 ## Known limitations
 
 - The `.ppam` file is created manually.
