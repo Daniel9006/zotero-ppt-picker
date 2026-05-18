@@ -15,8 +15,13 @@ zotero-ppt-picker/
 ├── docs/
 │   ├── development.md        # developer and architecture documentation
 │   ├── debugging.md          # debugging notes and known runtime issues
+│   ├── powerpoint_launcher.md # PowerPoint launcher setup and troubleshooting
 │   ├── testing.md            # manual alpha retest checklist
 │   └── mac_linux.md          # macOS / Linux notes and limitations
+├── powerpoint/
+│   └── LaunchZoteroPicker.bas # optional PowerPoint VBA launcher template
+├── scripts/
+│   └── start_picker.cmd      # optional Windows command launcher for PowerPoint/VBA
 ├── test_zotero_config.py     # standalone test for config and credential dialog
 ├── requirements.txt          # Python dependencies
 ├── README.md                 # user documentation (installation, configuration, usage)
@@ -80,6 +85,47 @@ Errors are raised as `ConfigError` and must be handled by the caller.
 - Tkinter dialogs are implemented defensively for Windows focus handling
 - Modal dialogs use `grab_set()` only after becoming visible
 - A hidden but real root window is used to avoid Windows/Tk issues
+
+---
+
+## PowerPoint launcher architecture
+
+As of `v0.1.0-alpha.20`, the project includes a minimal Windows/PowerPoint
+launcher path for starting the existing picker from PowerPoint:
+
+```text
+PowerPoint VBA macro -> scripts/start_picker.cmd -> zotero_picker_ppt.py
+```
+
+The launcher is intentionally separated from citation and bibliography logic.
+It only starts the existing Python process and does not introduce a new citation
+engine, bibliography model, Zotero configuration mechanism, COM refactor, or
+style engine.
+
+Responsibilities:
+
+- `powerpoint/LaunchZoteroPicker.bas` is a VBA template with a locally editable
+  path to `scripts/start_picker.cmd`.
+- `scripts/start_picker.cmd` resolves the repository root relative to its own
+  location.
+- The command launcher changes into the repository root before starting the
+  picker so relative runtime assumptions remain stable when PowerPoint starts
+  the process from a different working directory.
+- The launcher prefers `.venv\Scripts\pythonw.exe` and falls back to
+  `.venv\Scripts\python.exe`, `pyw.exe`, or `py.exe`.
+
+Out of scope for this alpha feature:
+
+- full Office Ribbon implementation
+- signed PPAM deployment
+- EXE packaging
+- installer
+- citation or bibliography logic changes
+- Zotero Web API or credential-flow changes
+- COM/threading refactor
+- locator/page support
+
+Detailed user setup is documented in `docs/powerpoint_launcher.md`.
 
 ---
 
@@ -218,7 +264,7 @@ Open follow-up topics:
 1. MLA disambiguation for identical visible labels remains future work.
 2. Locator/detail reference support must be designed as a separate feature block.
 3. Deeper CSL/style-engine validation remains future work.
-4. PowerPoint launcher or Ribbon integration remains outside the current scope.
+4. PowerPoint launcher hardening beyond the current VBA/command-file starter remains future work.
 5. A separate notes bibliography mode is not planned for this alpha scope.
 
 ---
@@ -226,8 +272,8 @@ Open follow-up topics:
 ## Testing
 
 Manual PowerPoint alpha retests are documented in `docs/testing.md`.
-Use that checklist before tagging alpha releases and after citation or
-bibliography workflow changes.
+Use that checklist before tagging alpha releases and after citation,
+bibliography workflow, or launcher changes.
 
 Recommended local tests:
 
@@ -245,6 +291,9 @@ rm -f ~/.config/ZoteroPowerPoint/config.json
 python test_zotero_config.py
 ```
 
+Launcher-specific retests are documented in the PowerPoint launcher section of
+`docs/testing.md`.
+
 ---
 
 ## Contribution guidelines
@@ -252,6 +301,7 @@ python test_zotero_config.py
 - Do not commit credentials or `.env` files
 - Keep configuration logic inside `zotero_config.py`
 - Avoid platform-specific logic outside dedicated modules
+- Keep PowerPoint launcher code separate from citation and bibliography logic
 
 ## Refactor roadmap (phase-aligned)
 
