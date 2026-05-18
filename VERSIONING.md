@@ -467,3 +467,67 @@ It prefers `.venv\Scripts\pythonw.exe`, with fallback options for `.venv\Scripts
 
 **Overall result**
 - `v0.1.0-alpha.20 – PowerPoint picker launcher`: release-ready.
+
+### v0.1.0-alpha.21 – PowerPoint Ribbon picker button
+
+**Scope**
+- Minimal PowerPoint Ribbon entry point for starting the existing picker from a dedicated `Zotero` tab.
+- Added `powerpoint/customUI14.xml` as the Office Ribbon XML source for the `Zotero` tab and **Picker starten** button.
+- Extended `powerpoint/LaunchZoteroPicker.bas` with a Ribbon callback for the new button.
+- Added `docs/powerpoint_ribbon_addin.md` with the manual `.pptm`/`.ppam` creation and validation workflow.
+- Kept the existing `scripts/start_picker.cmd` launcher as the process-start boundary.
+
+**Architecture**
+
+```text
+PowerPoint Ribbon tab → Picker starten → VBA callback → scripts/start_picker.cmd → zotero_picker_ppt.py
+```
+
+The Ribbon button delegates to the existing VBA launcher macro, which starts the existing command launcher. The existing Python picker remains the only citation and bibliography implementation.
+
+**Behavior**
+- The `Zotero` tab is available after loading the manually created `.ppam` add-in.
+- The **Picker starten** button starts the existing picker from normal `.pptx` presentations.
+- The picker starts without a visible command-window flash from the Ribbon button.
+- Citation insertion, notes support, bibliography target handling, **Dokument aktualisieren**, and **Bibliographie neu schreiben** remain implemented by the existing picker.
+- User-facing Ribbon labels and launcher error messages are German.
+
+**Not included**
+- No direct Ribbon buttons for **Dokument aktualisieren**, **Bibliographie neu schreiben**, or **Bibliographie-Ziel festlegen**.
+- No signed PPAM deployment.
+- No installer.
+- No automatic local path configuration.
+- No EXE packaging.
+- No citation or bibliography logic changes.
+- No Zotero configuration changes.
+- No COM/threading refactor.
+- No locator/page support.
+
+**Manual retest result**
+- Static checks: PASS.
+- `git diff --check`: PASS.
+- No changes to `zotero_picker_ppt.py`: PASS.
+- Local `.pptm` with Ribbon XML opens without startup callback error: PASS.
+- `Zotero` Ribbon tab appears in the local `.pptm`: PASS.
+- **Picker starten** button starts the existing picker: PASS.
+- Command-window flash was removed by hiding the launcher process from VBA: PASS.
+- `.ppam` add-in can be created and loaded manually: PASS.
+- `Zotero` Ribbon tab appears in a normal `.pptx`: PASS.
+- **Picker starten** starts the existing picker from a normal `.pptx`: PASS.
+- APA slide citation after Ribbon/PPAM start: PASS.
+- Bibliography target and update after Ribbon/PPAM start: PASS.
+- APA notes citation after Ribbon/PPAM start: PASS.
+- Automatic bibliography update after notes citation insert: PASS.
+- PowerPoint restart persistence: PASS.
+- Log inspection: PASS.
+
+**Known limitations**
+- The `.ppam` file is created manually and is not committed to the repository.
+- The add-in was tested as an unsigned local add-in.
+- Users may need to adjust PowerPoint Trust Center settings.
+- The local launcher path is still edited manually in VBA.
+- Only one Ribbon button is included in the initial scope.
+- Direct Ribbon actions for document update, bibliography rewrite, and bibliography target setup remain follow-up work.
+
+**Overall result**
+- `v0.1.0-alpha.21 – PowerPoint Ribbon picker button`: release-ready.
