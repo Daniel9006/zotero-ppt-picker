@@ -8,27 +8,28 @@ This document describes the internal architecture and design decisions for devel
 
 ```
 zotero-ppt-picker/
-├── zotero_picker_ppt.py      # main application entry point
+├── zotero_picker_ppt.py        # main application entry point
 ├── config/
 │   ├── __init__.py
-│   └── zotero_config.py      # configuration and credential handling
+│   └── zotero_config.py        # configuration and credential handling
 ├── docs/
-│   ├── development.md        # developer and architecture documentation
-│   ├── debugging.md          # debugging notes and known runtime issues
-│   ├── powerpoint_launcher.md # PowerPoint launcher setup and troubleshooting
-│   ├── testing.md            # manual alpha retest checklist
-│   └── mac_linux.md          # macOS / Linux notes and limitations
+│   ├── development.md          # developer and architecture documentation
+│   ├── debugging.md            # debugging notes and known runtime issues
+│   ├── powerpoint_launcher.md  # PowerPoint launcher and Ribbon documentation
+│   ├── testing.md              # manual alpha retest checklist
+│   └── mac_linux.md            # macOS / Linux notes and limitations
 ├── powerpoint/
-│   └── LaunchZoteroPicker.bas # optional PowerPoint VBA launcher template
+│   ├── LaunchZoteroPicker.bas  # PowerPoint VBA callbacks
+│   └── customUI14.xml          # PowerPoint Ribbon XML
 ├── scripts/
-│   └── start_picker.cmd      # optional Windows command launcher for PowerPoint/VBA
-├── test_zotero_config.py     # standalone test for config and credential dialog
-├── requirements.txt          # Python dependencies
-├── README.md                 # user documentation (installation, configuration, usage)
-├── TEAM.md                   # team and collaboration notes
-├── VERSIONING.md             # versioning rules and release ladder
-├── CODING_STANDARDS.md       # coding rules and quality expectations
-├── .env                      # optional local overrides (never commit secrets)
+│   └── start_picker.cmd        # Windows command launcher for PowerPoint/VBA/Ribbon actions
+├── test_zotero_config.py       # standalone test for config and credential dialog
+├── requirements.txt            # Python dependencies
+├── README.md                   # user documentation (installation, configuration, usage)
+├── TEAM.md                     # team and collaboration notes
+├── VERSIONING.md               # versioning rules and release ladder
+├── CODING_STANDARDS.md         # coding rules and quality expectations
+├── .env                        # optional local overrides (never commit secrets)
 └── .gitignore
 ```
 
@@ -44,10 +45,10 @@ zotero-ppt-picker/
 
 Credential resolution:
 
-1. Load local user config file, if present  
+1. Load local user config file, if present
    - Platform-specific user config location
    - Stored as JSON
-2. Apply environment variable overrides  
+2. Apply environment variable overrides
    - `ZOTERO_API_KEY`
    - `ZOTERO_LIBRARY_ID`
    - `ZOTERO_LIBRARY_TYPE`
@@ -59,7 +60,7 @@ This ensures:
 - optional environment-based overrides
 - deterministic behavior
 
-⚠️ Files containing real Zotero API keys must never be committed.  
+⚠️ Files containing real Zotero API keys must never be committed.
 Use the interactive configuration dialog or local `.env` files instead.
 
 ---
@@ -88,44 +89,82 @@ Errors are raised as `ConfigError` and must be handled by the caller.
 
 ---
 
-## PowerPoint launcher architecture
+## PowerPoint launcher and Ribbon architecture
 
-As of `v0.1.0-alpha.20`, the project includes a minimal Windows/PowerPoint
-launcher path for starting the existing picker from PowerPoint:
+The project includes a Windows/PowerPoint launcher path for starting the existing
+Picker UI and for running selected PowerPoint actions from Ribbon buttons.
 
 ```text
-PowerPoint VBA macro -> scripts/start_picker.cmd -> zotero_picker_ppt.py
+PowerPoint Ribbon button
+  -> VBA callback in powerpoint/LaunchZoteroPicker.bas
+     -> scripts/start_picker.cmd [optional --action ...]
+        -> zotero_picker_ppt.py
+           -> shared workflow implementation
 ```
 
 The launcher is intentionally separated from citation and bibliography logic.
-It only starts the existing Python process and does not introduce a new citation
-engine, bibliography model, Zotero configuration mechanism, COM refactor, or
-style engine.
+It does not introduce a new citation engine, bibliography model, Zotero
+configuration mechanism, or style engine.
+
+The current launcher supports two modes:
+
+```text
+scripts/start_picker.cmd
+```
+
+Starts the full Picker UI.
+
+```text
+scripts/start_picker.cmd --action set-bibliography-target
+scripts/start_picker.cmd --action rewrite-bibliography
+scripts/start_picker.cmd --action update-document
+```
+
+Runs a specific PowerPoint workflow without opening the Picker UI.
 
 Responsibilities:
 
-- `powerpoint/LaunchZoteroPicker.bas` is a VBA template with a locally editable
-  path to `scripts/start_picker.cmd`.
+- `powerpoint/customUI14.xml` defines the custom PowerPoint Ribbon tab.
+- `powerpoint/LaunchZoteroPicker.bas` contains the VBA callbacks for the Ribbon
+  buttons.
 - `scripts/start_picker.cmd` resolves the repository root relative to its own
-  location.
-- The command launcher changes into the repository root before starting the
-  picker so relative runtime assumptions remain stable when PowerPoint starts
-  the process from a different working directory.
-- The launcher prefers `.venv\Scripts\pythonw.exe` and falls back to
-  `.venv\Scripts\python.exe`, `pyw.exe`, or `py.exe`.
+  location and forwards optional action arguments to Python.
+- `zotero_picker_ppt.py` remains the only citation and bibliography
+  implementation.
+- CLI/Ribbon actions call the same shared Python workflow functions that are used
+  by the Picker-App buttons.
 
-Out of scope for this alpha feature:
+The Ribbon currently exposes these user-facing actions:
 
-- full Office Ribbon implementation
-- signed PPAM deployment
+```text
+Zitationen
+- Zitation einfuegen
+
+Dokument
+- Dokument aktualisieren
+
+Bibliographie
+- Bibliographie neu schreiben
+- Bibliographie-Ziel festlegen
+```
+
+For CLI/Ribbon action runs, `zotero_picker_ppt.py` keeps a hidden Tk event loop
+alive and runs the workflow in a worker thread. This mirrors the Picker-App
+execution model and avoids PowerPoint COM instability observed with synchronous
+headless action execution.
+
+Out of scope:
+
+- new citation engine
+- separate bibliography implementation
+- Zotero credential-flow changes
 - EXE packaging
 - installer
-- citation or bibliography logic changes
-- Zotero Web API or credential-flow changes
-- COM/threading refactor
+- signed or centrally deployed PPAM rollout
 - locator/page support
 
-Detailed user setup is documented in `docs/powerpoint_launcher.md`.
+Detailed setup and troubleshooting are documented in
+`docs/powerpoint_launcher.md`.
 
 ---
 
@@ -264,7 +303,7 @@ Open follow-up topics:
 1. MLA disambiguation for identical visible labels remains future work.
 2. Locator/detail reference support must be designed as a separate feature block.
 3. Deeper CSL/style-engine validation remains future work.
-4. PowerPoint launcher hardening beyond the current VBA/command-file starter remains future work.
+4. Signed/corporate PPAM rollout, installer packaging, and broader launcher deployment hardening remain future work.
 5. A separate notes bibliography mode is not planned for this alpha scope.
 
 ---
@@ -302,6 +341,9 @@ Launcher-specific retests are documented in the PowerPoint launcher section of
 - Keep configuration logic inside `zotero_config.py`
 - Avoid platform-specific logic outside dedicated modules
 - Keep PowerPoint launcher code separate from citation and bibliography logic
+- Do not implement duplicate citation or bibliography workflows in VBA or command
+  launcher code
+- Route CLI and Ribbon actions through the shared Python workflow functions
 
 ## Refactor roadmap (phase-aligned)
 

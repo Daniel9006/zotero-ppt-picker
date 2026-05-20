@@ -3,14 +3,39 @@
   <ribbon>
     <tabs>
       <tab id="tabZoteroPowerPoint" label="Zotero">
-        <group id="grpZoteroPicker" label="Zotero Picker">
+        <group id="grpZoteroPicker" label="Zitationen">
           <button id="btnLaunchZoteroPicker"
-                  label="Picker starten"
+                  label="Zitation einf&#x00FC;gen"
                   size="large"
                   imageMso="BibliographyAddNewSource"
-                  screentip="Zotero Picker starten"
-                  supertip="Startet den bestehenden Zotero PowerPoint Picker."
-                  onAction="LaunchZoteroPickerRibbon" />
+                  screentip="Zitation einf&#x00FC;gen und Stil w&#x00E4;hlen"
+                  supertip="&#x00D6;ffnet den Zotero Picker. Dort k&#x00F6;nnen Zitationen eingef&#x00FC;gt und der Zitationsstil festgelegt werden."
+                  onAction="LaunchZoteroPicker" />
+        </group>
+        <group id="grpZoteroDocument" label="Dokument">
+          <button id="btnUpdateDocument"
+                  label="Dokument aktualisieren"
+                  size="large"
+                  imageMso="Refresh"
+                  screentip="Dokument aktualisieren"
+                  supertip="Synchronisiert Zitate, bereinigt gel&#x00F6;schte Zitate und aktualisiert die Bibliographie."
+                  onAction="ZoteroUpdateDocument" />
+        </group>
+        <group id="grpZoteroBibliography" label="Bibliographie">
+          <button id="btnRewriteBibliography"
+                  label="Bibliographie neu schreiben"
+                  size="large"
+                  imageMso="BibliographyInsert"
+                  screentip="Bibliographie neu schreiben"
+                  supertip="Schreibt die Bibliographie aus dem aktuellen Citation-State neu."
+                  onAction="ZoteroRewriteBibliography" />
+          <button id="btnSetBibliographyTarget"
+                  label="Bibliographie-Ziel festlegen"
+                  size="large"
+                  imageMso="TextBoxInsert"
+                  screentip="Bibliographie-Ziel festlegen"
+                  supertip="Speichert das aktuell ausgew&#x00E4;hlte Textfeld als Bibliographie-Ziel."
+                  onAction="ZoteroSetBibliographyTarget" />
         </group>
       </tab>
     </tabs>

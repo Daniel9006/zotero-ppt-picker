@@ -41,7 +41,7 @@ if not errorlevel 1 (
 goto python_missing
 
 :start_picker
-start "" "%PYTHON_EXE%" "%APP_SCRIPT%"
+start "" "%PYTHON_EXE%" "%APP_SCRIPT%" %*
 set "START_RESULT=%ERRORLEVEL%"
 popd >nul 2>nul
 if not "%START_RESULT%"=="0" goto start_failed
