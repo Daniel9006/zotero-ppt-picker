@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import json
+import argparse
 import html
 import uuid
 import time
@@ -163,6 +164,74 @@ def _get_presentation():
         raise RuntimeError("Keine aktive Präsentation.")
     return pres
 
+def _iter_slides(pres):
+    """Yield slides defensively using indexed access first."""
+    try:
+        count = int(pres.Slides.Count)
+    except Exception:
+        count = 0
+
+    if count:
+        for idx in range(1, count + 1):
+            try:
+                yield pres.Slides.Item(idx)
+            except Exception:
+                continue
+        return
+
+    try:
+        for slide in pres.Slides:
+            yield slide
+    except Exception:
+        return
+
+def _get_slide_by_id(pres, slide_id):
+    """Return a usable PowerPoint slide by SlideID, or None if it cannot be resolved."""
+    try:
+        wanted = int(slide_id)
+    except Exception:
+        return None
+
+    # Prefer indexed iteration. In CLI/Ribbon mode, FindBySlideID can return
+    # a COM proxy that exposes the matching id but fails later on .Shapes.
+    for slide in _iter_slides(pres):
+        try:
+            if int(slide.SlideID) != wanted:
+                continue
+        except Exception:
+            continue
+
+        try:
+            _ = slide.Shapes
+            return slide
+        except Exception as e:
+            _debug(f"Resolve slide by id: matched slide unusable slide_id={wanted}: {e}")
+            continue
+
+    # Fallback to PowerPoint's direct lookup, but validate that the returned
+    # object is really usable as a slide.
+    try:
+        slide = pres.Slides.FindBySlideID(wanted)
+    except Exception as e:
+        _debug(f"Resolve slide by id: FindBySlideID failed slide_id={wanted}: {e}")
+        return None
+
+    try:
+        _ = slide.Shapes
+        return slide
+    except Exception as e:
+        _debug(f"Resolve slide by id: FindBySlideID returned unusable slide_id={wanted}: {e}")
+
+    # Some COM versions may return a range-like object. Try Item(1) defensively.
+    try:
+        slide = slide.Item(1)
+        _ = slide.Shapes
+        return slide
+    except Exception as e:
+        _debug(f"Resolve slide by id: Item(1) fallback failed slide_id={wanted}: {e}")
+
+    return None
+
 def _iter_shape_collection(shapes):
     """Yield shapes from a PowerPoint Shapes collection defensively."""
     try:
@@ -194,6 +263,21 @@ def _shape_has_usable_text_frame(shp) -> bool:
     except Exception:
         return False
 
+def _get_shape_id(shp) -> int:
+    """Return a stable PowerPoint shape id, or -1 if it cannot be read."""
+    if shp is None:
+        return -1
+
+    for attr in ("Id", "ID", "id"):
+        try:
+            shape_id = int(getattr(shp, attr))
+            if shape_id > 0:
+                return shape_id
+        except Exception:
+            continue
+
+    return -1
+
 def _iter_notes_shapes(slide):
     """Yield shapes from a slide's notes page, if available."""
     try:
@@ -207,9 +291,16 @@ def _iter_notes_shapes(slide):
 
 def _iter_citation_shapes_for_slide(slide, include_notes: bool = True):
     """Yield citation-relevant text shapes for one slide, including notes if requested."""
-    for shp in _iter_shape_collection(slide.Shapes):
-        if _shape_has_usable_text_frame(shp):
-            yield "slide", slide, shp
+    try:
+        shapes = slide.Shapes
+    except Exception as e:
+        _debug(f"Citation shape scan: slide shapes unavailable: {e}")
+        shapes = None
+
+    if shapes is not None:
+        for shp in _iter_shape_collection(shapes):
+            if _shape_has_usable_text_frame(shp):
+                yield "slide", slide, shp
 
     if include_notes:
         for shp in _iter_notes_shapes(slide):
@@ -226,7 +317,7 @@ def iter_citation_shapes(include_notes: bool = True):
     """
     pres = _get_presentation()
 
-    for slide in pres.Slides:
+    for slide in _iter_slides(pres):
         yield from _iter_citation_shapes_for_slide(slide, include_notes=include_notes)
     
 def _activate_powerpoint():
@@ -401,7 +492,7 @@ def ppt_insert_text_at_cursor(s):
             return shp
 
         # Notes pane fallback:
-# Insert an invisible unique marker, find the actual text shape,
+        # Insert an invisible unique marker, find the actual text shape,
         # remove the marker again, and return the found shape.
         marker = f"⟦zp-insert:{uuid.uuid4().hex}⟧"
         inserted = s + marker
@@ -635,7 +726,7 @@ def normalize_sig_group(sig):
         for scope, slide, shp, i, k, old_cite in occ:
             try:
                 slide_id = int(slide.SlideID)
-                shape_id = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
+                shape_id = _get_shape_id(shp)
             except Exception:
                 continue
             key = (scope, slide_id, shape_id)
@@ -1019,7 +1110,7 @@ def set_bibliography_anchor_from_selection():
 
         _debug(
             f"Anchor selection: slide={getattr(slide,'SlideID',None)}, "
-            f"shape_id={getattr(shp,'Id',getattr(shp,'ID',None))}, "
+            f"shape_id={_get_shape_id(shp)}, "
             f"hasTextFrame={getattr(shp,'HasTextFrame',False)}"
         )
 
@@ -1033,26 +1124,29 @@ def set_bibliography_anchor_from_selection():
                 "nicht nur den Cursor setzen."
             )
 
-        # Intentionally no `shp.TextFrame.HasText`: bibliography fields are allowed to be empty
+        # Intentionally no `shp.TextFrame.HasText`: bibliography fields are allowed to be empty.
+        # Capture PowerPoint IDs immediately while the selected COM objects are still connected.
+        try:
+            selected_slide_id = int(slide.SlideID)
+            selected_shape_id = _get_shape_id(shp)
+        except Exception as e:
+            _debug(f"Anchor save: failed to read selected object IDs: {e}")
+            selected_slide_id = -1
+            selected_shape_id = -1
 
         st = load_doc_state()
         bib_guid = st.get("bib_guid") or str(uuid.uuid4())
         st["bib_guid"] = bib_guid
 
-        # Hard anchor via IDs, robustly handling Id vs. ID
-        try:
-            shape_id = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
-            slide_id = int(slide.SlideID)
-
-            if shape_id > 0:
-                st["bib_anchor"] = {
-                    "slide_id": slide_id,
-                    "shape_id": shape_id,
-                }
-            else:
-                st.pop("bib_anchor", None)
-
-        except Exception:
+        # Hard anchor via captured IDs. This remains usable even if the original
+        # selection COM proxy becomes disconnected before tagging.
+        if selected_slide_id > 0 and selected_shape_id > 0:
+            st["bib_anchor"] = {
+                "slide_id": selected_slide_id,
+                "shape_id": selected_shape_id,
+            }
+        else:
+            _debug("Anchor save: selected shape has no stable SlideID/ShapeID")
             st.pop("bib_anchor", None)
 
         save_doc_state(st)
@@ -1100,30 +1194,53 @@ def _resolve_anchor_list():
             try:
                 slide_id = int(slide_id)
                 shape_id = int(shape_id)
-                for slide in pres.Slides:
-                    if int(slide.SlideID) != slide_id:
-                        continue
-                    for shp in slide.Shapes:
-                        sid = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
-                        if sid == shape_id and getattr(shp, "HasTextFrame", False):
-                            key = (int(slide.SlideID), sid)
-                            if key not in seen:
-                                resolved.append((slide, shp))
-                                seen.add(key)
-                            break
-                    break
-            except Exception:
-                pass
+                slide = _get_slide_by_id(pres, slide_id)
+
+                if slide is not None:
+                    shapes = None
+
+                    try:
+                        shapes = slide.Shapes
+                    except Exception as e:
+                        _debug(f"Resolve anchors: direct slide shapes unavailable: {e}")
+
+                        # PowerPoint COM may return a SlideRange-like object for FindBySlideID.
+                        # In that case, the real slide is often Item(1).
+                        try:
+                            slide = slide.Item(1)
+                            shapes = slide.Shapes
+                            _debug("Resolve anchors: direct slide normalized via Item(1)")
+                        except Exception as e2:
+                            _debug(f"Resolve anchors: direct slide Item(1) fallback failed: {e2}")
+                            shapes = None
+
+                    if shapes is not None:
+                        for shp in _iter_shape_collection(shapes):
+                            sid = _get_shape_id(shp)
+                            if sid == shape_id and getattr(shp, "HasTextFrame", False):
+                                key = (int(slide.SlideID), sid)
+                                if key not in seen:
+                                    resolved.append((slide, shp))
+                                    seen.add(key)
+                                break
+            except Exception as e:
+                _debug(f"Resolve anchors: direct lookup failed: {e}")
 
         # 2) Additionally find all shapes with the GUID, including continuation slides or duplicates
         if bib_guid:
-            for slide in pres.Slides:
-                for shp in slide.Shapes:
+            for slide in _iter_slides(pres):
+                try:
+                    shapes = slide.Shapes
+                except Exception as e:
+                    _debug(f"Resolve anchors: slide shapes unavailable: {e}")
+                    continue
+
+                for shp in _iter_shape_collection(shapes):
                     try:
                         if not getattr(shp, "HasTextFrame", False):
                             continue
 
-                        sid = int(getattr(shp, "Id", getattr(shp, "ID", -1)))
+                        sid = _get_shape_id(shp)
                         key = (int(slide.SlideID), sid)
                         if key in seen:
                             continue
@@ -1475,35 +1592,30 @@ def _try_fit_entries_into_shape(shape, entries, preferred_size=PREF_FONT_SIZE, m
 def update_bibliography(keys, style, api_key, library_id, library_type, numbering=None):
     _debug(f"Bib update: keys={len(keys)} style={style}")
 
-    # 1) Resolve anchors first (COM), even for an empty bibliography,
-    #    so stale bibliography text can be cleared reliably.
+    # 1) Resolve anchors only for validation/clearing.
+    #    Do not introduce a second anchor representation here:
+    #    _resolve_anchor_list() is the single source of truth.
     with com_context("update_bibliography.resolve_anchors"):
         anchors = _resolve_anchor_list()
         _debug(f"Bib update: anchors={len(anchors)}")
+
         if not anchors:
+            if keys:
+                raise RuntimeError("Kein Bibliographie-Ziel gesetzt oder Ziel nicht auflösbar.")
             return
 
-        safe_anchors = []
-        for slide, shape in anchors:
-            try:
-                if shape is not None and getattr(shape, "HasTextFrame", False):
-                    _ = shape.TextFrame
-                    safe_anchors.append((slide, shape))
-            except Exception:
-                continue
-        anchors = safe_anchors
-        _debug(f"Bib update: safe_anchors={len(anchors)}")
-        if not anchors:
-            return
-
-        # 1b) If there are no keys, clear all bibliography anchor fields and stop.
+        # If there are no keys, clear all bibliography anchor fields and stop.
         if not keys:
-            for slide, shape in anchors:
+            cleared = 0
+            for _slide, shape in anchors:
                 try:
-                    shape.TextFrame.TextRange.Text = ""
-                except Exception:
-                    pass
-            _debug(f"Bib cleared: anchors={len(anchors)} style={style}")
+                    if _shape_has_usable_text_frame(shape):
+                        shape.TextFrame.TextRange.Text = ""
+                        cleared += 1
+                except Exception as e:
+                    _debug(f"Bib clear: anchor skipped: {e}")
+
+            _debug(f"Bib cleared: anchors={cleared} style={style}")
             return
 
     if style == "ieee" and numbering is None:
@@ -1514,7 +1626,7 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
             keys = ordered_keys
         _debug(f"Bib update IEEE numbering: keys={len(keys)} numbering={len(numbering)}")
 
-    # 2) Build entries via Web API (do not hold COM lock)
+    # 2) Build entries via Web API.
     entries = []
     failures = []
 
@@ -1525,7 +1637,7 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
                 library_id,
                 library_type,
                 k,
-                style
+                style,
             )
             if style == "ieee":
                 entry = _strip_ieee_bibliography_label(entry)
@@ -1534,6 +1646,7 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
                 entries.append(f"[{numbering[k]}] {entry}")
             else:
                 entries.append(entry)
+
         except BibliographyFetchError as e:
             failures.append((k, str(e)))
 
@@ -1548,12 +1661,54 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
     remaining = entries[:]
     _debug(f"Bib entries generated: {len(entries)}")
 
-    # 3) Write and paginate (COM)
+    # 3) Write to the anchors that were resolved before the Web API calls.
+    #    In CLI/Ribbon mode, a fresh lookup after network calls can fail even
+    #    though the original anchor is still usable. Therefore, keep the
+    #    originally resolved anchor as the primary path and only use a fresh
+    #    lookup as a fallback.
     with com_context("update_bibliography.write_and_paginate"):
-        # Resolve anchors again in the same COM context to ensure valid COM objects
-        anchors = _resolve_anchor_list()
+        _debug(f"Bib write: cached_anchors={len(anchors)}")
+
+        usable_anchors = []
+        for slide, shape in anchors:
+            try:
+                if _shape_has_usable_text_frame(shape):
+                    usable_anchors.append((slide, shape))
+                else:
+                    _debug(
+                        f"Bib write: cached anchor skipped, no usable TextFrame "
+                        f"slide={getattr(slide, 'SlideID', None)} "
+                        f"shape_id={_get_shape_id(shape)}"
+                    )
+            except Exception as e:
+                _debug(f"Bib write: cached anchor skipped: {e}")
+
+        if not usable_anchors:
+            _debug("Bib write: cached anchors unavailable; trying fresh lookup")
+            fresh_anchors = _resolve_anchor_list()
+            _debug(f"Bib write: fresh_anchors={len(fresh_anchors)}")
+
+            for slide, shape in fresh_anchors:
+                try:
+                    if _shape_has_usable_text_frame(shape):
+                        usable_anchors.append((slide, shape))
+                    else:
+                        _debug(
+                            f"Bib write: fresh anchor skipped, no usable TextFrame "
+                            f"slide={getattr(slide, 'SlideID', None)} "
+                            f"shape_id={_get_shape_id(shape)}"
+                        )
+                except Exception as e:
+                    _debug(f"Bib write: fresh anchor skipped: {e}")
+
+        anchors = usable_anchors
+
         if not anchors:
-            return
+            _debug("Bib write ABORT: no usable bibliography text field")
+            raise RuntimeError(
+                "Bibliographie-Ziel konnte beim Schreiben nicht verwendet werden. "
+                "Bitte nutze „Bibliographie neu schreiben“ erneut oder setze das Ziel neu."
+            )
 
         for slide, shape in anchors:
             if remaining:
@@ -1565,7 +1720,27 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
                         f"Bibliographie nicht vollständig geschrieben: {len(remaining)} Einträge konnten nicht platziert werden."
                     )
 
+                # Verify that PowerPoint actually accepted text in the target.
+                try:
+                    written_text = shape.TextFrame.TextRange.Text or ""
+                    if not written_text.strip():
+                        raise RuntimeError(
+                            "Bibliographie-Ziel wurde beschrieben, enthält danach aber keinen Text."
+                        )
+                except RuntimeError:
+                    raise
+                except Exception as e:
+                    _debug(f"Bib write: read-back verification unavailable: {e}")
+
+                _debug(
+                    f"Bib write: placed={used} "
+                    f"remaining={max(0, len(remaining) - used)} "
+                    f"slide={getattr(slide, 'SlideID', None)} "
+                    f"shape_id={_get_shape_id(shape)}"
+                )
+
                 remaining = remaining[used:]
+
             else:
                 try:
                     shape.TextFrame.TextRange.Text = ""
@@ -1575,7 +1750,8 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
         while remaining:
             src_slide, src_shape = anchors[-1]
             new_slide, new_shape = _duplicate_anchor_to_new_slide_like(src_slide, src_shape)
-            if new_shape is None or not getattr(new_shape, "HasTextFrame", False):
+
+            if new_shape is None or not _shape_has_usable_text_frame(new_shape):
                 _debug("Bib pagination ABORT: new_shape invalid or without TextFrame")
                 raise RuntimeError(
                     f"Bibliographie nicht vollständig geschrieben: {len(remaining)} Einträge konnten nicht platziert werden."
@@ -1590,9 +1766,16 @@ def update_bibliography(keys, style, api_key, library_id, library_type, numberin
                     f"Bibliographie nicht vollständig geschrieben: {len(remaining)} Einträge konnten nicht platziert werden."
                 )
 
+            _debug(
+                f"Bib pagination: placed={used} "
+                f"remaining={max(0, len(remaining) - used)} "
+                f"slide={getattr(new_slide, 'SlideID', None)} "
+                f"shape_id={_get_shape_id(new_shape)}"
+            )
+
             remaining = remaining[used:]
 
-    _debug(f"Bib update OK: entries={len(entries)} anchors={len(anchors)} style={style}")
+        _debug(f"Bib update OK: entries={len(entries)} anchors={len(anchors)} style={style}")
 # =========================================================
 
 
@@ -1859,6 +2042,265 @@ def renumber_ieee_and_update(*, parent=None) -> bool:
     return True
 # =========================================================
 
+
+
+# ===================== CLI / Ribbon actions =====================
+
+def _get_action_style(state):
+    return state.get("style", DEFAULT_STYLE) or DEFAULT_STYLE
+
+
+def _missing_zotero_config_error() -> RuntimeError:
+    return RuntimeError(
+        "Zotero ist nicht konfiguriert. "
+        "Bitte starte zuerst den Picker und speichere die Zotero-Zugangsdaten."
+    )
+
+
+def run_document_update_workflow(parent=None) -> str:
+    """
+    Shared implementation for the document update workflow.
+
+    Used by:
+    - PickerApp.on_cleanup() / PickerApp.on_document_update()
+    - CLI/Ribbon action --action update-document
+    """
+    try:
+        cfg = get_cfg(allow_prompt=False, parent=parent)
+    except RuntimeError as e:
+        raise _missing_zotero_config_error() from e
+
+    state = load_doc_state()
+    style = _get_action_style(state)
+    bibliography_already_updated = False
+
+    new_keys = resync_bibliography_keys_from_document(state)
+    _debug(f"DocumentUpdate: keys_after_prune={len(new_keys)} style={style}")
+
+    if style in ("apa", "harvard1"):
+        renormalize_all_sig_groups()
+        _debug("DocumentUpdate: renormalize_all_sig_groups done")
+        new_keys = resync_bibliography_keys_from_document(state)
+
+    if style == "ieee":
+        had_bibliography_anchor = has_bibliography_anchor()
+        ieee_update_ok = renumber_ieee_and_update(parent=parent)
+        bibliography_already_updated = had_bibliography_anchor and ieee_update_ok
+        new_keys = resync_bibliography_keys_from_document(state)
+        _debug("DocumentUpdate: renumber_ieee_and_update done")
+
+    if not new_keys:
+        base_status = "Aktualisiert: keine Zitate mehr im Dokument gefunden."
+    else:
+        base_status = f"Aktualisiert: {len(new_keys)} Zitat(e) im Dokument."
+
+    if not has_bibliography_anchor():
+        return base_status + " (Kein Bibliographie-Ziel gesetzt.)"
+
+    if not bibliography_already_updated:
+        update_bibliography(
+            new_keys,
+            style,
+            cfg.api_key,
+            cfg.library_id,
+            cfg.library_type,
+        )
+
+    return base_status
+
+
+def run_rewrite_bibliography_workflow(parent=None) -> str:
+    """
+    Shared implementation for rewriting the bibliography.
+
+    Used by:
+    - PickerApp.on_bib_update()
+    - CLI/Ribbon action --action rewrite-bibliography
+    """
+    try:
+        cfg = get_cfg(allow_prompt=False, parent=parent)
+    except RuntimeError as e:
+        raise _missing_zotero_config_error() from e
+
+    state = load_doc_state()
+    style = _get_action_style(state)
+    state["bib_keys"] = resync_bibliography_keys_from_document(state)
+    keys = state.get("bib_keys", [])
+
+    if not has_bibliography_anchor():
+        if not keys:
+            return "Bibliographie leer."
+        raise RuntimeError(
+            "Kein Bibliographie-Ziel gesetzt.\n"
+            "Bitte gehe zur Bibliographie-Folie, wähle das Textfeld und nutze "
+            "„Bibliographie-Ziel festlegen“."
+        )
+
+    update_bibliography(
+        keys,
+        style,
+        cfg.api_key,
+        cfg.library_id,
+        cfg.library_type,
+    )
+
+    if keys:
+        return f"Bibliographie aktualisiert ({code_to_label(style)})."
+    return "Bibliographie geleert."
+
+def run_set_bibliography_target_workflow(parent=None) -> str:
+    """
+    Shared implementation for setting the bibliography target.
+
+    Used by:
+    - PickerApp.on_set_anchor()
+    - CLI/Ribbon action --action set-bibliography-target
+
+    Important:
+    Setting the bibliography target must not force an immediate full citation
+    resync. In headless CLI/Ribbon mode, that resync can block while PowerPoint
+    still exposes the newly selected target shape. The document update and
+    bibliography rewrite workflows remain responsible for full resync.
+    """
+    set_bibliography_anchor_from_selection()
+
+    state = load_doc_state()
+    keys = state.get("bib_keys", []) or []
+    anchor_count = len(_resolve_anchor_list())
+    style = _get_action_style(state)
+
+    _debug(
+        f"SetBibTarget: keys_from_state={len(keys)} "
+        f"anchors={anchor_count} style={style}"
+    )
+
+    if not anchor_count:
+        raise RuntimeError(
+            "Bibliographie-Ziel wurde gesetzt, ist danach aber nicht auflösbar."
+        )
+
+    if keys:
+        try:
+            cfg = get_cfg(allow_prompt=False, parent=parent)
+        except RuntimeError as e:
+            raise RuntimeError(
+                f"Bibliographie-Ziel gesetzt. Gefundene Anker: {anchor_count}. "
+                "Zotero ist nicht konfiguriert; die Bibliographie wurde noch nicht aktualisiert."
+            ) from e
+
+        update_bibliography(
+            keys,
+            style,
+            cfg.api_key,
+            cfg.library_id,
+            cfg.library_type,
+        )
+        return f"Bibliographie-Ziel gesetzt. Gefundene Anker: {anchor_count} (Bibliographie aktualisiert)."
+
+    return f"Bibliographie-Ziel gesetzt. Gefundene Anker: {anchor_count} (noch keine Zitate)."
+
+def run_document_update_action(parent=None) -> str:
+    """CLI/Ribbon wrapper for the shared document update workflow."""
+    return run_document_update_workflow(parent=parent)
+
+
+def run_rewrite_bibliography_action(parent=None) -> str:
+    """CLI/Ribbon wrapper for the shared bibliography rewrite workflow."""
+    return run_rewrite_bibliography_workflow(parent=parent)
+
+
+def run_set_bibliography_target_action(parent=None) -> str:
+    """CLI/Ribbon wrapper for the shared bibliography target workflow."""
+    return run_set_bibliography_target_workflow(parent=parent)
+
+
+ACTION_CHOICES = {
+    "update-document": run_document_update_action,
+    "rewrite-bibliography": run_rewrite_bibliography_action,
+    "set-bibliography-target": run_set_bibliography_target_action,
+}
+
+def run_cli_action(action: str) -> int:
+    """
+    Run one Ribbon/CLI action without opening the picker GUI.
+
+    Keep the Tk event loop alive and run the actual workflow in a worker thread,
+    matching the PickerApp button execution model more closely than a synchronous
+    CLI call on the main thread.
+    """
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler("zotero_ppt.log", encoding="utf-8"),
+        ],
+    )
+
+    fn = ACTION_CHOICES.get(action)
+    if fn is None:
+        print(f"Unbekannte Aktion: {action}", file=sys.stderr)
+        return 1
+
+    root = tk.Tk()
+    root.withdraw()
+
+    result_box = {
+        "exit_code": 1,
+        "result": None,
+        "error": None,
+    }
+
+    def _work():
+        try:
+            with com_context(f"cli-action-worker:{action}", use_lock=False):
+                result = fn(parent=root)
+
+            result_box["exit_code"] = 0
+            result_box["result"] = result
+            LOG.info("CLI action completed: action=%s result=%s", action, result)
+
+        except Exception as e:
+            result_box["exit_code"] = 1
+            result_box["error"] = e
+            LOG.exception("CLI action failed: action=%s", action)
+
+        finally:
+            try:
+                root.after(0, root.quit)
+            except Exception:
+                pass
+
+    threading.Thread(
+        target=_work,
+        name=f"ZP-CLI-{action}",
+        daemon=True,
+    ).start()
+
+    try:
+        root.mainloop()
+
+        if result_box["exit_code"] == 0:
+            result = result_box["result"] or "Aktion abgeschlossen."
+            messagebox.showinfo("Zotero PowerPoint", result, parent=root)
+            return 0
+
+        err = result_box["error"]
+        msg = str(err).strip() if err is not None else ""
+        if not msg:
+            msg = "Unbekannter Fehler. Details siehe zotero_ppt.log."
+
+        messagebox.showerror("Zotero PowerPoint", msg, parent=root)
+        print(msg, file=sys.stderr)
+        return 1
+
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+# =========================================================
 
 def code_to_label(code):
     return next((name for name, c in STYLE_CHOICES if c == code), code)
@@ -2349,58 +2791,25 @@ class PickerApp:
         btn_row = ttk.Frame(win, padding=10)
         btn_row.pack(fill="x")
 
+        def _finish_after_set(result):
+            try:
+                self.state = load_doc_state()
+            except Exception:
+                pass
+
+            self._anchor_win = None
+            try:
+                if win.winfo_exists():
+                    win.destroy()
+            except Exception:
+                pass
+
+            self.set_status(result)
+
         def _do_set():
             def _work():
-                # 1) Set the anchor
-                # If this fails, keep the window open so the user can correct the selection directly.
-                set_bibliography_anchor_from_selection()
-
-                state = load_doc_state()
-                state["bib_keys"] = resync_bibliography_keys_from_document(state)
-                anchor_count = len(_resolve_anchor_list())
-                style = state.get("style", DEFAULT_STYLE)
-
-                def _finish_ui():
-                    self.state = state
-                    self._anchor_win = None
-                    try:
-                        if win.winfo_exists():
-                            win.destroy()
-                    except Exception:
-                        pass
-
-                try:
-                    try:
-                        cfg = get_cfg(allow_prompt=False, parent=self.root)
-                    except RuntimeError:
-                        self.root.after(0, lambda: show_missing_zotero_config(self.root))
-                        return
-
-                    if state.get("bib_keys"):
-                        update_bibliography(
-                            state.get("bib_keys", []),
-                            style,
-                            cfg.api_key,
-                            cfg.library_id,
-                            cfg.library_type
-                        )
-                        self.root.after(
-                            0,
-                            lambda: self.set_status(
-                                f"Bibliographie-Ziel gesetzt. Gefundene Anker: {anchor_count} (Bibliographie aktualisiert)"
-                            )
-                        )
-                    else:
-                        self.root.after(
-                            0,
-                            lambda: self.set_status(
-                                f"Bibliographie-Ziel gesetzt. Gefundene Anker: {anchor_count} (noch keine Zitate)"
-                            )
-                        )
-                finally:
-                    # Once the anchor was set successfully, always clean up the UI state,
-                    # even if the bibliography update fails.
-                    self.root.after(0, _finish_ui)
+                result = run_set_bibliography_target_workflow(parent=self.root)
+                self.root.after(0, lambda: _finish_after_set(result))
 
             run_in_thread(
                 "SetBibAnchor",
@@ -2445,7 +2854,7 @@ class PickerApp:
             win.lift()
         except Exception:
             pass
-        
+
         # Bring PowerPoint to the foreground so the user can click the target field
         _activate_powerpoint()
 
@@ -2471,46 +2880,23 @@ class PickerApp:
 
     def on_bib_update(self):
         try:
-            cfg = get_cfg(allow_prompt=False, parent=self.root)
+            get_cfg(allow_prompt=False, parent=self.root)
         except RuntimeError:
             show_missing_zotero_config(self.root)
             return
-
-        style = self.state.get("style", DEFAULT_STYLE)
 
         # Update UI immediately: running state
         self.set_status("Bibliographie wird aktualisiert...")
 
         def _work():
-            # Run the COM part entirely in the worker; run_in_thread handles COM context/locking
-            state = load_doc_state()  # avoid using self.state directly in the worker
-            state["bib_keys"] = resync_bibliography_keys_from_document(state)
-            keys = state.get("bib_keys", [])
-
-            if not has_bibliography_anchor():
-                if not keys:
-                    self.root.after(0, lambda: self.set_status("Bibliographie leer."))
-                else:
-                    self.root.after(
-                        0,
-                        lambda: messagebox.showerror(
-                            "Fehlendes Ziel",
-                            "Kein Bibliographie-Ziel gesetzt.\n"
-                            "Bitte gehe zur Bibliographie-Folie, wähle das Textfeld und klicke "
-                            "„Bibliographie-Ziel festlegen“.",
-                            parent=self.root
-                        )
-                    )
-                return
-
-            update_bibliography(keys, style, cfg.api_key, cfg.library_id, cfg.library_type)
+            result = run_rewrite_bibliography_workflow(parent=self.root)
 
             def _finish_ui():
-                self.state = state
-                if keys:
-                    self.set_status(f"Bibliographie aktualisiert ({code_to_label(style)}).")
-                else:
-                    self.set_status("Bibliographie geleert.")
+                try:
+                    self.state = load_doc_state()
+                except Exception:
+                    pass
+                self.set_status(result)
 
             self.root.after(0, _finish_ui)
 
@@ -2521,67 +2907,44 @@ class PickerApp:
         _debug("Document update clicked")
 
         try:
-            cfg = get_cfg(allow_prompt=False, parent=self.root)
+            get_cfg(allow_prompt=False, parent=self.root)
         except RuntimeError:
             show_missing_zotero_config(self.root)
             return
-
-        style = self.state.get("style", DEFAULT_STYLE)
 
         # Update UI immediately: running state
         self.set_status("Dokument wird aktualisiert...")
 
         def _work():
-            # --- COM-heavy part in the worker ---
-            state = load_doc_state()
-            bibliography_already_updated = False
-
-            # 1) Rebuild keys from the document
-            new_keys = resync_bibliography_keys_from_document(state)
-            _debug(f"DocumentUpdate: keys_after_prune={len(new_keys)} style={style}")
-
-            # 2) APA/Harvard: fully renormalize a/b groups, including rollback
-            if style in ("apa", "harvard1"):
-                renormalize_all_sig_groups()
-                _debug("DocumentUpdate: renormalize_all_sig_groups done")
-                new_keys = resync_bibliography_keys_from_document(state)
-
-            # 2b) IEEE: renumber slide and notes citations and update stored cite tags
-            if style == "ieee":
-                had_bibliography_anchor = has_bibliography_anchor()
-                ieee_update_ok = renumber_ieee_and_update(parent=self.root)
-                bibliography_already_updated = had_bibliography_anchor and ieee_update_ok
-                new_keys = resync_bibliography_keys_from_document(state)
-                _debug("DocumentUpdate: renumber_ieee_and_update done")
-            
-            # 3) Determine base status
-            if not new_keys:
-                base_status = "Aktualisiert: keine Zitate mehr im Dokument gefunden."
-            else:
-                base_status = f"Aktualisiert: {len(new_keys)} Zitat(e) im Dokument."
-
-            # 4) If no bibliography target exists, finish here
-            if not has_bibliography_anchor():
-                def _finish_ui_no_anchor():
-                    self.state = state
-                    self.set_status(base_status + " (Kein Bibliographie-Ziel gesetzt.)")
-                self.root.after(0, _finish_ui_no_anchor)
-                return
-
-            # 5) Update bibliography
-            if not bibliography_already_updated:
-                update_bibliography(new_keys, style, cfg.api_key, cfg.library_id, cfg.library_type)
+            result = run_document_update_workflow(parent=self.root)
 
             def _finish_ui():
-                self.state = state
-                self.set_status(base_status)
+                try:
+                    self.state = load_doc_state()
+                except Exception:
+                    pass
+                self.set_status(result)
 
             self.root.after(0, _finish_ui)
 
         # Run document update workflow in background worker
         run_in_thread("DocumentUpdate", _work, ui_parent=self.root)
             
+
 def main():
+    parser = argparse.ArgumentParser(
+        description="Zotero PowerPoint picker and Ribbon actions."
+    )
+    parser.add_argument(
+        "--action",
+        choices=sorted(ACTION_CHOICES.keys()),
+        help="Run a PowerPoint action without opening the picker GUI.",
+    )
+    args = parser.parse_args()
+
+    if args.action:
+        return run_cli_action(args.action)
+
     logging.basicConfig(
         level=logging.DEBUG,  # useful for COM stabilization; later possibly INFO
         format="%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
@@ -2595,10 +2958,11 @@ def main():
 
     PickerApp(root)
     root.mainloop()
+    return 0
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except Exception as ex:
         print(f"Fatal: {ex}", file=sys.stderr)
         sys.exit(1)

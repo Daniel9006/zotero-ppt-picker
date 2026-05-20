@@ -1,49 +1,123 @@
-# PowerPoint picker launcher
+﻿# PowerPoint picker launcher and Ribbon actions
 
-This document describes the minimal Windows/PowerPoint launcher introduced for
-`v0.1.0-alpha.20`.
+This document describes the Windows/PowerPoint launcher integration for
+`zotero-ppt-picker`.
 
-The launcher starts the existing Python picker from PowerPoint. It does not add a
-new citation engine, does not change bibliography handling, and does not replace
-the existing `zotero_picker_ppt.py` workflow.
+The launcher was introduced in `v0.1.0-alpha.20` to start the existing Python
+picker from PowerPoint. It was extended later with Ribbon/CLI actions for common
+PowerPoint workflows.
+
+The PowerPoint integration does not add a separate citation engine. It calls the
+existing `zotero_picker_ppt.py` implementation and keeps citation, bibliography,
+state, and Zotero access logic in Python.
 
 ---
 
 ## Architecture
 
 ```text
-PowerPoint VBA macro
-  -> scripts/start_picker.cmd
-     -> zotero_picker_ppt.py
+PowerPoint Ribbon button
+  -> VBA callback in powerpoint/LaunchZoteroPicker.bas
+     -> scripts/start_picker.cmd [optional --action ...]
+        -> zotero_picker_ppt.py
+           -> shared workflow implementation
 ```
 
-Responsibilities:
+The launcher supports two modes:
 
-- `powerpoint/LaunchZoteroPicker.bas` contains a small VBA macro template.
-- `scripts/start_picker.cmd` resolves the repository root relative to itself.
-- The command launcher changes into the repository root before starting Python.
-- The existing `zotero_picker_ppt.py` application remains the only picker and
-  citation/bibliography implementation.
+```text
+scripts/start_picker.cmd
+```
 
-This separation keeps PowerPoint integration independent from citation logic.
+Starts the full Picker UI.
+
+```text
+scripts/start_picker.cmd --action set-bibliography-target
+scripts/start_picker.cmd --action rewrite-bibliography
+scripts/start_picker.cmd --action update-document
+```
+
+Runs a specific PowerPoint action without opening the Picker UI.
 
 ---
 
-## Requirements
+## Responsibilities
 
-- Windows
-- Microsoft PowerPoint desktop version
-- Python and the project virtual environment set up as described in `README.md`
-- Project dependencies installed via `requirements.txt`
-- Zotero credentials configured through the existing application flow
+- `powerpoint/customUI14.xml` defines the custom PowerPoint Ribbon tab.
+- `powerpoint/LaunchZoteroPicker.bas` contains the VBA callbacks.
+- `scripts/start_picker.cmd` resolves the repository root relative to itself and
+  starts Python from a stable working directory.
+- `zotero_picker_ppt.py` remains the only citation and bibliography
+  implementation.
+- CLI/Ribbon actions call the same shared Python workflow functions that are used
+  by the Picker-App buttons.
 
-The recommended runtime path is:
+This avoids a parallel implementation in VBA or in the command launcher.
+
+---
+
+## Ribbon buttons
+
+The Ribbon tab is named `Zotero` and contains these buttons:
+
+```text
+Zitationen
+- Zitation einfuegen
+
+Dokument
+- Dokument aktualisieren
+
+Bibliographie
+- Bibliographie neu schreiben
+- Bibliographie-Ziel festlegen
+```
+
+In the XML file, German umlauts are encoded as XML character references, for
+example:
+
+```xml
+label="Zitation einf&#x00FC;gen"
+```
+
+PowerPoint displays this as `Zitation einfügen`, while the XML file remains
+ASCII-safe and avoids encoding issues.
+
+---
+
+## VBA callbacks
+
+`powerpoint/LaunchZoteroPicker.bas` exposes these Ribbon callbacks:
+
+```vb
+LaunchZoteroPicker
+ZoteroUpdateDocument
+ZoteroRewriteBibliography
+ZoteroSetBibliographyTarget
+```
+
+The callbacks delegate to a single internal helper that calls
+`scripts/start_picker.cmd` with the appropriate optional action argument.
+
+Expected mapping:
+
+```text
+LaunchZoteroPicker              -> scripts/start_picker.cmd
+ZoteroUpdateDocument            -> scripts/start_picker.cmd --action update-document
+ZoteroRewriteBibliography       -> scripts/start_picker.cmd --action rewrite-bibliography
+ZoteroSetBibliographyTarget     -> scripts/start_picker.cmd --action set-bibliography-target
+```
+
+---
+
+## Runtime behavior
+
+The command launcher prefers:
 
 ```text
 .venv\Scripts\pythonw.exe
 ```
 
-The launcher can also fall back to:
+It can fall back to:
 
 ```text
 .venv\Scripts\python.exe
@@ -51,54 +125,205 @@ pyw.exe
 py.exe
 ```
 
-The `.venv` path remains the preferred and most predictable option.
+The `.venv` path remains the preferred and most predictable option because it
+uses the project dependencies installed from `requirements.txt`.
+
+For Ribbon/CLI actions, `zotero_picker_ppt.py` keeps a hidden Tk event loop alive
+and runs the actual workflow in a worker thread. This matches the Picker-App
+execution model more closely than a synchronous command-line call and avoids
+PowerPoint COM instability observed in headless action runs.
 
 ---
 
 ## Setup in PowerPoint
 
-1. Open PowerPoint.
+1. Open the macro-enabled PowerPoint file or add-in project.
 2. Open the VBA editor with `Alt+F11`.
-3. Import `powerpoint/LaunchZoteroPicker.bas`, or copy the macro into a module.
-4. Edit the local launcher path in the VBA module:
+3. Import or update `powerpoint/LaunchZoteroPicker.bas`.
+4. Verify the local project path in the module:
 
    ```vb
-   Private Const PICKER_LAUNCHER_PATH As String = "C:\Path\To\zotero-ppt-picker\scripts\start_picker.cmd"
+   Private Const PROJECT_ROOT As String = "C:\Users\daniel\OneDrive\Zotero_Add-In\Python\zotero-ppt-picker"
    ```
 
-5. Save the macro-enabled presentation or add-in file according to your local
-   PowerPoint macro workflow.
-6. Run `LaunchZoteroPicker` from PowerPoint.
+5. Add or update `powerpoint/customUI14.xml` with Office RibbonX Editor.
+6. Save the `.pptm` or `.ppam`.
+7. Close PowerPoint completely.
+8. Reopen PowerPoint and verify that the `Zotero` Ribbon tab is visible.
 
-Optional: assign the macro to the PowerPoint Quick Access Toolbar or to a custom
-Ribbon button through PowerPoint's built-in customization UI.
+For `.ppam` deployment, load the add-in through:
+
+```text
+File -> Options -> Add-ins -> Manage: PowerPoint Add-ins -> Go... -> Add New...
+```
 
 ---
 
-## Usage
+## Manual launcher checks
 
-1. Open PowerPoint and a presentation.
-2. Place the text cursor where the citation should be inserted.
-3. Run the `LaunchZoteroPicker` macro.
-4. Use the existing picker as before.
+Run these checks from the repository root with an active PowerPoint presentation:
 
-The picker behavior after startup is unchanged. Citation insertion, notes
-citation support, **Dokument aktualisieren**, and **Bibliographie neu schreiben**
-continue to use the existing Python implementation.
+```powershell
+.\scripts\start_picker.cmd
+```
+
+Expected result: the Picker UI opens.
+
+For actions:
+
+```powershell
+Remove-Item .\zotero_ppt.log -ErrorAction SilentlyContinue
+.\scripts\start_picker.cmd --action set-bibliography-target
+```
+
+```powershell
+Remove-Item .\zotero_ppt.log -ErrorAction SilentlyContinue
+.\scripts\start_picker.cmd --action rewrite-bibliography
+```
+
+```powershell
+Remove-Item .\zotero_ppt.log -ErrorAction SilentlyContinue
+.\scripts\start_picker.cmd --action update-document
+```
+
+Expected log marker for action runs:
+
+```text
+COM enter(no-lock): cli-action-worker:<action-name>
+```
+
+---
+
+## Ribbon retest checklist
+
+Use a test presentation with at least one citation and a bibliography text field.
+
+### Bibliographie-Ziel festlegen
+
+1. Select the bibliography text box in PowerPoint so the frame is visible.
+2. Click `Bibliographie-Ziel festlegen`.
+
+Expected result:
+
+```text
+Bibliographie-Ziel gesetzt. Gefundene Anker: 1 (Bibliographie aktualisiert).
+```
+
+Expected log markers:
+
+```text
+Anchor selection:
+Anchor saved:
+Resolve anchors: found=1
+Bib entries generated:
+Bib write: placed=
+Bib update OK:
+```
+
+### Bibliographie neu schreiben
+
+Click `Bibliographie neu schreiben`.
+
+Expected result:
+
+```text
+Bibliographie aktualisiert (<style label>).
+```
+
+Expected log markers:
+
+```text
+cli-action-worker:rewrite-bibliography
+Bib update: anchors=1
+Bib entries generated:
+Bib write: placed=
+Bib update OK:
+```
+
+### Dokument aktualisieren
+
+Click `Dokument aktualisieren`.
+
+Expected result:
+
+```text
+Aktualisiert: <n> Zitat(e) im Dokument.
+```
+
+Expected log markers:
+
+```text
+cli-action-worker:update-document
+DocumentUpdate: keys_after_prune=
+Bib update OK:
+```
+
+### Zitation einfuegen
+
+Click `Zitation einfuegen`.
+
+Expected result:
+
+- the Picker UI opens,
+- a citation can be selected and inserted,
+- the bibliography is automatically updated if a bibliography target exists.
+
+---
+
+## Confirmed test status
+
+The current implementation has been manually tested with:
+
+```text
+CLI actions
+- --action set-bibliography-target
+- --action rewrite-bibliography
+- --action update-document
+
+Launcher actions
+- scripts/start_picker.cmd --action set-bibliography-target
+- scripts/start_picker.cmd --action rewrite-bibliography
+- scripts/start_picker.cmd --action update-document
+
+PowerPoint .pptm Ribbon buttons
+- Zitation einfuegen
+- Dokument aktualisieren
+- Bibliographie neu schreiben
+- Bibliographie-Ziel festlegen
+
+PowerPoint .ppam Ribbon buttons
+- Zitation einfuegen
+- Dokument aktualisieren
+- Bibliographie neu schreiben
+- Bibliographie-Ziel festlegen
+```
 
 ---
 
 ## Troubleshooting
 
+### Zotero tab is not visible
+
+Close and reopen PowerPoint. If the tab is still missing, verify that the `.pptm`
+or `.ppam` contains the updated `customUI14.xml` and that the add-in is loaded.
+
+### Macro callback not found
+
+Verify that the `onAction` names in `customUI14.xml` exactly match the public VBA
+Sub names in `LaunchZoteroPicker.bas`.
+
 ### Launcher file not found
 
-If the macro reports that the launcher was not found, update
-`PICKER_LAUNCHER_PATH` in `powerpoint/LaunchZoteroPicker.bas` so it points to
-your local `scripts/start_picker.cmd` file.
+Verify the `PROJECT_ROOT` constant in `powerpoint/LaunchZoteroPicker.bas` and
+confirm that this file exists:
 
-### Missing `.venv`
+```text
+scripts\start_picker.cmd
+```
 
-Create the virtual environment from the repository root:
+### Python or dependency errors
+
+Use the project virtual environment whenever possible:
 
 ```powershell
 py -m venv .venv
@@ -106,36 +331,31 @@ py -m venv .venv
 pip install -r requirements.txt
 ```
 
-### Python not found
+### Action starts but no bibliography is written
 
-Use the project virtual environment whenever possible. If `.venv` is missing,
-the launcher tries `pyw.exe` and `py.exe`, but those fallback interpreters may
-not have the required dependencies installed.
+Check `zotero_ppt.log`. A successful action should include:
 
-### Picker starts, but PowerPoint is not active
+```text
+cli-action-worker:
+Resolve anchors: found=1
+Bib write: placed=
+Bib update OK:
+```
 
-Open PowerPoint, activate the target presentation, and place the text cursor in
-a text box before inserting a citation.
-
-### Zotero configuration is missing
-
-The existing picker opens the Zotero credentials dialog when no valid local
-configuration is available. Credentials are still stored through the existing
-configuration flow; the launcher does not modify configuration files.
+If no bibliography target is found, select the bibliography text box and run
+`Bibliographie-Ziel festlegen`.
 
 ---
 
 ## Out of scope
 
-This launcher is intentionally minimal. It is not:
+This launcher and Ribbon integration is not:
 
-- a full Office Ribbon implementation
-- a signed PPAM deployment
-- an EXE package
-- an installer
 - a new citation engine
+- a separate bibliography implementation
 - a Zotero configuration mechanism
-- a COM/threading refactor
+- an installer
+- a signed deployment package
 
-Locator/page support, style-engine refactoring, and bibliography model changes
-remain separate future work.
+Locator/page support, deeper CSL/style-engine refactoring, and bibliography model
+changes remain separate future work.

@@ -1,45 +1,39 @@
-Attribute VB_Name = "LaunchZoteroPicker"
 Option Explicit
 
-' PowerPoint VBA starter for zotero-ppt-picker.
-' Maintainer-facing comments are English; user-facing messages are German.
-'
-' Installation:
-' 1. Import this .bas file into the PowerPoint VBA editor.
-' 2. Adjust PICKER_LAUNCHER_PATH to your local repository path.
-' 3. Run LaunchZoteroPicker from PowerPoint, assign it to a button,
-'    or connect it to the custom Ribbon XML callback.
+Private Const PROJECT_ROOT As String = "C:\Users\daniel\OneDrive\Zotero_Add-In\Python\zotero-ppt-picker"
+Private Const START_PICKER_CMD As String = PROJECT_ROOT & "\scripts\start_picker.cmd"
 
-Private Const PICKER_LAUNCHER_PATH As String = "C:\Path\To\zotero-ppt-picker\scripts\start_picker.cmd"
-
-Public Sub LaunchZoteroPickerRibbon(control As IRibbonControl)
-    ' Ribbon button callback used by customUI14.xml.
-    LaunchZoteroPicker
+Public Sub LaunchZoteroPicker(control As IRibbonControl)
+    RunZoteroPickerAction ""
 End Sub
 
-Public Sub LaunchZoteroPicker()
-    Dim launcherPath As String
-    Dim runner As Object
-    launcherPath = PICKER_LAUNCHER_PATH
+Public Sub ZoteroUpdateDocument(control As IRibbonControl)
+    RunZoteroPickerAction "update-document"
+End Sub
 
-    If Len(Dir$(launcherPath, vbNormal)) = 0 Then
-        MsgBox "Der Zotero-Picker-Launcher wurde nicht gefunden:" & vbCrLf & _
-               launcherPath & vbCrLf & vbCrLf & _
-               "Bitte passe PICKER_LAUNCHER_PATH im VBA-Modul an.", _
-               vbExclamation, _
-               "Zotero Picker starten"
-        Exit Sub
+Public Sub ZoteroRewriteBibliography(control As IRibbonControl)
+    RunZoteroPickerAction "rewrite-bibliography"
+End Sub
+
+Public Sub ZoteroSetBibliographyTarget(control As IRibbonControl)
+    RunZoteroPickerAction "set-bibliography-target"
+End Sub
+
+Private Sub RunZoteroPickerAction(ByVal actionName As String)
+    Dim shell As Object
+    Dim q As String
+    Dim cmd As String
+
+    q = Chr$(34)
+
+    cmd = "cmd.exe /c " & q & q & START_PICKER_CMD & q
+
+    If Len(actionName) > 0 Then
+        cmd = cmd & " --action " & actionName
     End If
 
-    On Error GoTo LaunchFailed
-    Set runner = CreateObject("WScript.Shell")
-    runner.Run """" & launcherPath & """", 0, False
-    Exit Sub
+    cmd = cmd & q
 
-LaunchFailed:
-    MsgBox "Der Zotero-Picker konnte nicht gestartet werden." & vbCrLf & _
-           "Launcher:" & vbCrLf & launcherPath & vbCrLf & vbCrLf & _
-           "Fehler: " & Err.Description, _
-           vbExclamation, _
-           "Zotero Picker starten"
+    Set shell = CreateObject("WScript.Shell")
+    shell.Run cmd, 1, False
 End Sub

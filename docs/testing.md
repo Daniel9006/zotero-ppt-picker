@@ -32,14 +32,14 @@ This checklist covers:
 - the primary document update workflow with slide and notes citations
 - the secondary bibliography rewrite workflow with slide and notes citations
 - PowerPoint launcher startup checks when launcher code or documentation changes
+- PowerPoint Ribbon and PPAM smoke checks when Ribbon, VBA, customUI, launcher, or CLI action code changes
 
 This checklist does not cover:
 
 - new citation styles
 - separate notes bibliography mode
 - locator or page support
-- full PowerPoint Ribbon implementation
-- signed PPAM deployment
+- signed or centrally deployed PPAM rollout
 - CSL/style-engine refactoring
 - COM/threading refactors unless they were explicitly changed
 - packaging or installer validation
@@ -153,37 +153,66 @@ Expected base result:
 
 ---
 
-## PowerPoint Launcher Checks
+## PowerPoint Launcher and Ribbon Checks
 
-Use these checks for releases that add or modify launcher behavior.
+Use these checks for releases that add or modify launcher, VBA, Ribbon XML, CLI
+action, or PPAM behavior.
+
+### Command launcher checks
 
 | Done | Check | Expected result |
 | --- | --- | --- |
 | [ ] | Start `scripts/start_picker.cmd` from PowerShell. | Picker starts without requiring a manual `cd` into another folder. |
 | [ ] | Start `scripts/start_picker.cmd` from `cmd.exe`. | Picker starts through the command launcher. |
 | [ ] | Start the launcher from another working directory. | The launcher resolves the repository root relative to itself. |
+| [ ] | Run `scripts/start_picker.cmd --action set-bibliography-target`. | The selected text box is stored as bibliography target and the bibliography is updated when citation keys exist. |
+| [ ] | Run `scripts/start_picker.cmd --action rewrite-bibliography`. | The bibliography is rebuilt from the current citation state. |
+| [ ] | Run `scripts/start_picker.cmd --action update-document`. | Citations are resynced and the bibliography is updated when a target exists. |
+| [ ] | Inspect `zotero_ppt.log` after each action. | The log contains `cli-action-worker:<action>` and no unexpected traceback. |
+
+### VBA and Ribbon XML checks
+
+| Done | Check | Expected result |
+| --- | --- | --- |
 | [ ] | Import or copy `powerpoint/LaunchZoteroPicker.bas`. | The VBA module imports or copies without syntax changes. |
-| [ ] | Set `PICKER_LAUNCHER_PATH` to the local `scripts/start_picker.cmd`. | The macro points to the correct local launcher file. |
-| [ ] | Run `LaunchZoteroPicker` from PowerPoint with an active presentation. | The picker starts from PowerPoint. |
-| [ ] | Temporarily set a wrong launcher path in the VBA macro. | A clear German message reports that the launcher was not found. |
-| [ ] | Temporarily test missing `.venv` or missing Python path. | The command launcher shows a clear German error message. |
-| [ ] | Insert a citation on a normal slide after launcher start. | Existing picker behavior is unchanged. |
-| [ ] | Insert a citation in PowerPoint notes after launcher start. | Existing notes citation behavior is unchanged. |
-| [ ] | Run **Dokument aktualisieren** after launcher start. | Existing document update behavior is unchanged. |
-| [ ] | Run **Bibliographie neu schreiben** after launcher start. | Existing bibliography rewrite behavior is unchanged. |
-| [ ] | Inspect `zotero_ppt.log`. | No unexpected launcher-related or picker-related errors appear. |
+| [ ] | Compile the VBA project. | No VBA compile error appears. |
+| [ ] | Verify `PROJECT_ROOT` in the VBA module. | The path points to the local repository root. |
+| [ ] | Add or update `powerpoint/customUI14.xml` in the `.pptm`. | The Zotero Ribbon tab appears after reopening PowerPoint. |
+| [ ] | Verify Ribbon labels and groups. | `Zitation einfuegen` appears under `Zitationen`, `Dokument aktualisieren` under `Dokument`, and both bibliography buttons under `Bibliographie`. |
+| [ ] | Verify Ribbon callbacks. | Each Ribbon button calls the expected VBA callback without "macro not found" errors. |
+
+### `.pptm` Ribbon smoke checks
+
+| Done | Button | Expected result |
+| --- | --- | --- |
+| [ ] | `Zitation einfuegen` | Picker opens; a selected Zotero item can be inserted; bibliography auto-updates when a target exists. |
+| [ ] | `Bibliographie-Ziel festlegen` | Selected text box is saved as target and bibliography is updated when citation keys exist. |
+| [ ] | `Bibliographie neu schreiben` | Bibliography is rebuilt and a German success dialog appears. |
+| [ ] | `Dokument aktualisieren` | Document state and bibliography are updated and a German success dialog appears. |
+
+### `.ppam` add-in smoke checks
+
+| Done | Button | Expected result |
+| --- | --- | --- |
+| [ ] | Load or activate the `.ppam` through PowerPoint Add-ins. | The Zotero Ribbon tab appears. |
+| [ ] | `Zitation einfuegen` | Picker opens from the add-in. |
+| [ ] | `Bibliographie-Ziel festlegen` | Target setup works from the add-in. |
+| [ ] | `Bibliographie neu schreiben` | Bibliography rewrite works from the add-in. |
+| [ ] | `Dokument aktualisieren` | Document update works from the add-in. |
 
 Classify failures as one of:
 
 - launcher problem
 - PowerPoint/VBA path problem
+- Ribbon callback problem
 - Python/virtual-environment problem
-- existing picker/Zotero/network problem
+- picker/Zotero/network problem
+- PowerPoint COM action workflow problem
 
 Expected result:
 
 ```text
-PowerPoint launcher: passed / failed
+PowerPoint launcher and Ribbon actions: passed / failed
 Notes:
 ```
 
@@ -412,11 +441,18 @@ Manual test result:
 - Chicago Author-Date passed in alpha scope
 - Log inspection passed
 
-PowerPoint launcher:
+PowerPoint launcher and Ribbon:
 - scripts/start_picker.cmd from PowerShell passed / failed
 - scripts/start_picker.cmd from CMD passed / failed
 - start from another working directory passed / failed
-- PowerPoint VBA macro start passed / failed
+- start_picker.cmd --action set-bibliography-target passed / failed
+- start_picker.cmd --action rewrite-bibliography passed / failed
+- start_picker.cmd --action update-document passed / failed
+- .pptm Ribbon: Zitation einfuegen passed / failed
+- .pptm Ribbon: Bibliographie-Ziel festlegen passed / failed
+- .pptm Ribbon: Bibliographie neu schreiben passed / failed
+- .pptm Ribbon: Dokument aktualisieren passed / failed
+- .ppam Ribbon smoke test passed / failed
 - wrong launcher path error handling passed / failed
 - missing .venv/Python error handling passed / failed
 
@@ -430,8 +466,7 @@ Notes citation support:
 Known limitations:
 - Separate notes bibliography mode is not included
 - Locator/page support is not included
-- Full Ribbon/Add-in integration is not included
-- Signed PPAM deployment is not included
+- Signed/corporate PPAM deployment is not included
 - EXE packaging and installer support are not included
 - No full CSL/style-engine validation
 - No automated PowerPoint COM test suite

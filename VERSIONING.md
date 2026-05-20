@@ -9,13 +9,13 @@ This repository uses a pragmatic, small-team-friendly versioning approach:
 
 **Tags are the source of truth.**
 
-Current public baseline: `v0.1.0-alpha.19`
+Current public baseline: `v0.1.0-alpha.22`
 
 Current development focus:
 - technical stabilization of citation and bibliography mechanics
-- notes citation support for document-wide citation scans and bibliography maintenance
 - persistent citation state and document resync reliability
-- minimal PowerPoint-side launcher support for the existing picker
+- PowerPoint Ribbon and CLI actions for existing picker workflows
+- avoiding parallel citation or bibliography implementations outside Python
 
 ---
 
@@ -531,3 +531,87 @@ The Ribbon button delegates to the existing VBA launcher macro, which starts the
 
 **Overall result**
 - `v0.1.0-alpha.21 – PowerPoint Ribbon picker button`: release-ready.
+
+### v0.1.0-alpha.22 – PowerPoint Ribbon actions and workflow unification
+
+**Scope**
+- Added direct PowerPoint Ribbon/CLI actions for:
+  - `set-bibliography-target`
+  - `rewrite-bibliography`
+  - `update-document`
+- Extended `scripts/start_picker.cmd` so action arguments are forwarded to Python.
+- Extended `powerpoint/LaunchZoteroPicker.bas` with callbacks for all Ribbon actions.
+- Updated `powerpoint/customUI14.xml` to expose four Ribbon buttons:
+  - **Zitation einfügen**
+  - **Dokument aktualisieren**
+  - **Bibliographie neu schreiben**
+  - **Bibliographie-Ziel festlegen**
+- Grouped bibliography-related Ribbon actions under **Bibliographie**.
+- Kept the Picker-App workflow and Ribbon/CLI workflow on shared Python workflow functions.
+- Removed the experimental bibliography anchor reference helper path.
+- Added `.xml` line-ending handling to `.gitattributes`.
+
+**Architecture**
+
+```text
+PowerPoint Ribbon button
+  -> VBA callback
+     -> scripts/start_picker.cmd --action ...
+        -> zotero_picker_ppt.py
+           -> shared workflow implementation
+```
+
+The Ribbon and CLI actions do not implement separate citation or bibliography
+logic. They call the same shared Python workflow functions used by the Picker-App
+buttons.
+
+For CLI/Ribbon action runs, Python keeps a hidden Tk event loop alive and runs
+the selected workflow in a worker thread. This matches the Picker-App execution
+model more closely than a synchronous command-line call and avoids PowerPoint COM
+instability observed during bibliography target setup and writing.
+
+**Behavior**
+- Zitation einfügen opens the Picker-App and supports citation insertion and citation style selection.
+- Bibliographie-Ziel festlegen stores the selected text box as bibliography target and updates the bibliography when citation keys exist.
+- Bibliographie neu schreiben rebuilds the bibliography from the current citation state.
+- Dokument aktualisieren resyncs citation state and updates the bibliography when a target exists.
+- German user-facing labels and success/error dialogs are preserved.
+- Maintainer-facing logs remain English.
+
+**Fixes**
+- Fixed unreliable CLI/Ribbon bibliography target setup where the target was detected and saved, but later rejected as unusable.
+- Removed the redundant `_make_shape_ref()`, `_resolve_shape_refs()`, and `_get_shape_by_id()` helper path.
+- Simplified bibliography writing to rely on the existing anchor resolver.
+- Changed CLI action execution to use a hidden Tk root plus worker thread, aligning it with Picker-App button execution.
+- Cleaned accidental PowerShell here-string remnants from generated launcher/Ribbon files.
+- Made Ribbon XML robust against encoding problems by using XML character references for German umlauts.
+
+**Manual retest result**
+- Static checks: PASS.
+- `python -m py_compile zotero_picker_ppt.py`: PASS.
+- `python zotero_picker_ppt.py --help`: PASS.
+- `git diff --check`: PASS.
+- CLI `--action set-bibliography-target`: PASS.
+- CLI `--action rewrite-bibliography`: PASS.
+- CLI `--action update-document`: PASS.
+- `scripts/start_picker.cmd --action set-bibliography-target`: PASS.
+- `scripts/start_picker.cmd --action rewrite-bibliography`: PASS.
+- `scripts/start_picker.cmd --action update-document`: PASS.
+- `.pptm` Ribbon **Zitation einfügen**: PASS.
+- `.pptm` Ribbon **Bibliographie-Ziel festlegen**: PASS.
+- `.pptm` Ribbon **Bibliographie neu schreiben**: PASS.
+- `.pptm` Ribbon **Dokument aktualisieren**: PASS.
+- `.ppam` Ribbon smoke test: PASS.
+- Log inspection: PASS.
+
+**Known limitations**
+- The `.ppam` file is still created manually and is not committed to the repository.
+- The add-in was tested as an unsigned local add-in.
+- Users may need to adjust PowerPoint Trust Center settings.
+- The local `PROJECT_ROOT` path is still edited manually in VBA.
+- No installer or EXE package is included.
+- No locator/page support.
+- No full CSL/style-engine refactor.
+
+**Overall result**
+- `v0.1.0-alpha.22 – PowerPoint Ribbon actions and workflow unification`: completed, tested, and release-ready.

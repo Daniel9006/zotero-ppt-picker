@@ -119,21 +119,30 @@ This method is intended for advanced users only.
    ```
 5. Select a reference and insert it
 
-### Optional PowerPoint launcher
+### Optional PowerPoint launcher and Ribbon actions
 
-On Windows, the picker can also be started from PowerPoint through a small VBA
-macro and command launcher:
+On Windows, the picker can also be started from PowerPoint through the
+VBA/Ribbon launcher:
 
 ```text
-PowerPoint VBA -> scripts/start_picker.cmd -> zotero_picker_ppt.py
+PowerPoint Ribbon -> VBA callback -> scripts/start_picker.cmd -> zotero_picker_ppt.py
 ```
 
-This is a minimal launcher workflow, not a full Office add-in, signed PPAM,
-installer, or EXE package. The existing Python picker remains unchanged and
-continues to own citation insertion, bibliography updates, notes support, and
-Zotero configuration handling.
+The Ribbon can open the Picker UI and can also run selected PowerPoint actions
+directly:
 
-See `docs/powerpoint_launcher.md` for setup and troubleshooting.
+```text
+scripts/start_picker.cmd --action set-bibliography-target
+scripts/start_picker.cmd --action rewrite-bibliography
+scripts/start_picker.cmd --action update-document
+```
+
+The Python application remains the only citation and bibliography implementation.
+The Ribbon and CLI actions reuse the same workflow functions as the Picker-App
+buttons.
+
+See `docs/powerpoint_launcher.md` for setup, Ribbon XML, PPAM notes, and
+troubleshooting.
 
 To update citations and bibliography:
 
@@ -157,7 +166,7 @@ Bibliography status messages use display style names such as `Harvard` or `Chica
 
 The picker currently provides selectable citation styles at different validation levels.
 
-Current alpha status as of `v0.1.0-alpha.19`:
+Current alpha status as of `v0.1.0-alpha.22`:
 
 - APA: passed in current alpha scope, including slide and notes citations
 - IEEE: passed in current alpha scope, including slide and notes citations
