@@ -24,6 +24,20 @@ Private Sub RunZoteroPickerAction(ByVal actionName As String)
     Dim q As String
     Dim cmd As String
 
+    Set shell = CreateObject("WScript.Shell")
+
+    ' Picker UI only:
+    ' If the picker is already open, bring it to the foreground instead of
+    ' starting a second picker instance.
+    If Len(actionName) = 0 Then
+        On Error Resume Next
+        If shell.AppActivate("Zotero Picker") Then
+            On Error GoTo 0
+            Exit Sub
+        End If
+        On Error GoTo 0
+    End If
+
     q = Chr$(34)
 
     cmd = "cmd.exe /c " & q & q & START_PICKER_CMD & q
@@ -34,6 +48,6 @@ Private Sub RunZoteroPickerAction(ByVal actionName As String)
 
     cmd = cmd & q
 
-    Set shell = CreateObject("WScript.Shell")
-    shell.Run cmd, 1, False
+    ' Window style 0 hides the transient command window.
+    shell.Run cmd, 0, False
 End Sub
