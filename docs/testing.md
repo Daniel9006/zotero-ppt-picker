@@ -151,6 +151,8 @@ Expected base result:
 - citation metadata survives save / close / reopen where supported
 - no unexpected traceback appears in the log
 
+Use a separate fresh presentation per citation style when validating style-specific behavior. Mixing different citation styles in one presentation is not part of the supported alpha workflow and may leave incompatible citation metadata in the same document.
+
 ---
 
 ## PowerPoint Launcher and Ribbon Checks
@@ -339,6 +341,10 @@ Notes:
 Verify:
 
 - new in-text citations do not render as author-date citations
+- duplicate visible-label handling for different Zotero items with the same MLA label
+- duplicate-label handling across normal slide citations and PowerPoint notes citations
+- rollback after deleting one item from a duplicate-label group
+- no unnecessary title qualifier when no MLA label collision exists
 - no unexpected APA/Harvard repair path is applied
 - bibliography update works in the current alpha scope
 - no locator or page behavior is expected
@@ -371,6 +377,9 @@ Result:
 Chicago Author-Date: passed / failed
 Notes:
 ```
+
+Known limitation:
+- Chicago Author-Date currently does not add `a`/`b` year suffixes for different sources with the same author/year. This is tracked as a follow-up and should not be treated as a `v0.1.0-alpha.24` regression.
 
 ---
 

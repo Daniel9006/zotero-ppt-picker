@@ -133,7 +133,6 @@ directly:
 
 ```text
 scripts/start_picker.cmd --action set-bibliography-target
-scripts/start_picker.cmd --action rewrite-bibliography
 scripts/start_picker.cmd --action update-document
 ```
 
@@ -166,7 +165,7 @@ Bibliography status messages use display style names such as `Harvard` or `Chica
 
 The picker currently provides selectable citation styles at different validation levels.
 
-Current alpha status as of `v0.1.0-alpha.22`:
+Current alpha status as of `v0.1.0-alpha.24`:
 
 - APA: passed in current alpha scope, including slide and notes citations
 - IEEE: passed in current alpha scope, including slide and notes citations
@@ -178,13 +177,18 @@ Current alpha status as of `v0.1.0-alpha.22`:
   - bibliography rebuild after setting the target later
 - Chicago Author-Date: passed in current alpha scope, including slide and notes citations
 - Harvard: passed in current alpha scope, including slide and notes citations
-- MLA: passed in current alpha scope with minimal MLA-specific in-text rendering, including slide and notes citations
+- MLA: passed in current alpha scope with minimal MLA-specific in-text rendering and duplicate visible-label handling, including slide and notes citations
   - new MLA citations render as minimal parenthetical labels, for example `(Author)`, `(Author and Author)`, or `(Corporate Author)`
+  - different Zotero items with the same visible MLA label are disambiguated with a short-title/title qualifier, for example `(Corporate Author, Short Title)`
+  - MLA duplicate-label normalization updates visible citation text and stored `ZP_CITES` metadata together
   - locator/page support is not included
-  - existing MLA citations inserted with older alpha versions are not migrated automatically
-  - MLA disambiguation for identical visible labels is not implemented yet
+  - existing legacy MLA citations inserted with older alpha versions may not be fully retroactively disambiguated when no title metadata is stored
 
 Locator/detail references such as pages, chapters, clauses, figures, and tables are not part of the current alpha scope.
+
+Known style limitations:
+
+- Chicago Author-Date currently does not disambiguate different sources with the same author/year as `2024a` / `2024b`; this remains a separate follow-up and was not changed in `v0.1.0-alpha.24`.
 
 Citations are persisted internally via PowerPoint shape tags. Visible citation text alone is not sufficient; document updates and bibliography rebuilds depend on the stored citation metadata.
 

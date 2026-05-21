@@ -89,12 +89,14 @@ ZWM_END   = "\u2063"
 ZWM_ALPH = ["\u200b", "\u200c", "\u200d", "\u2060"]
 ZWM_MAP = {ch: i for i, ch in enumerate(ZWM_ALPH)}
 
+
 def _zwm_encode_key(key: str) -> str:
     data = key.encode("utf-8")
     digits = []
     for b in data:
         digits.extend([(b >> 6) & 3, (b >> 4) & 3, (b >> 2) & 3, b & 3])
     return ZWM_START + "".join(ZWM_ALPH[d] for d in digits) + ZWM_END
+
 
 def _zwm_decode_keys_from_text(text: str):
     keys, pos = [], 0
@@ -120,6 +122,8 @@ def _zwm_decode_keys_from_text(text: str):
                     pass
         pos = j + 1
     return keys
+
+
 # =========================================================
 def _debug(msg):
     try:
@@ -130,10 +134,12 @@ def _debug(msg):
 
 _CFG: Optional[ZoteroConfig] = None
 
+
 def reset_cfg_cache():
     """Allows reloading the config later without restarting the process."""
     global _CFG
     _CFG = None
+
 
 def get_cfg(*, allow_prompt: bool, parent: Optional[tk.Misc] = None) -> ZoteroConfig:
     """
@@ -156,13 +162,13 @@ def get_cfg(*, allow_prompt: bool, parent: Optional[tk.Misc] = None) -> ZoteroCo
 
 
 # ===================== PowerPoint helpers =================
-
 def _get_presentation():
     app = win32.Dispatch("PowerPoint.Application")
     pres = app.ActivePresentation
     if not pres:
         raise RuntimeError("Keine aktive Präsentation.")
     return pres
+
 
 def _iter_slides(pres):
     """Yield slides defensively using indexed access first."""
@@ -184,6 +190,7 @@ def _iter_slides(pres):
             yield slide
     except Exception:
         return
+
 
 def _get_slide_by_id(pres, slide_id):
     """Return a usable PowerPoint slide by SlideID, or None if it cannot be resolved."""
@@ -232,6 +239,7 @@ def _get_slide_by_id(pres, slide_id):
 
     return None
 
+
 def _iter_shape_collection(shapes):
     """Yield shapes from a PowerPoint Shapes collection defensively."""
     try:
@@ -253,6 +261,7 @@ def _iter_shape_collection(shapes):
     except Exception:
         return
 
+
 def _shape_has_usable_text_frame(shp) -> bool:
     """Return True if the shape exposes a usable TextFrame."""
     try:
@@ -262,6 +271,7 @@ def _shape_has_usable_text_frame(shp) -> bool:
         return True
     except Exception:
         return False
+
 
 def _get_shape_id(shp) -> int:
     """Return a stable PowerPoint shape id, or -1 if it cannot be read."""
@@ -278,6 +288,7 @@ def _get_shape_id(shp) -> int:
 
     return -1
 
+
 def _iter_notes_shapes(slide):
     """Yield shapes from a slide's notes page, if available."""
     try:
@@ -288,6 +299,7 @@ def _iter_notes_shapes(slide):
 
     for shp in _iter_shape_collection(shapes):
         yield shp
+
 
 def _iter_citation_shapes_for_slide(slide, include_notes: bool = True):
     """Yield citation-relevant text shapes for one slide, including notes if requested."""
@@ -307,6 +319,7 @@ def _iter_citation_shapes_for_slide(slide, include_notes: bool = True):
             if _shape_has_usable_text_frame(shp):
                 yield "notes", slide, shp
 
+
 def iter_citation_shapes(include_notes: bool = True):
     """
     Yield citation-relevant text shapes in document order.
@@ -319,7 +332,8 @@ def iter_citation_shapes(include_notes: bool = True):
 
     for slide in _iter_slides(pres):
         yield from _iter_citation_shapes_for_slide(slide, include_notes=include_notes)
-    
+
+
 def _activate_powerpoint():
     with com_context("_activate_powerpoint"):
         try:
@@ -330,13 +344,14 @@ def _activate_powerpoint():
         except Exception:
             pass
 
+
 def _get_current_slide_and_shape():
     with com_context("_get_current_slide_and_shape"):
         app = win32.Dispatch("PowerPoint.Application")
         win = app.ActiveWindow
         if not win:
             return None, None
-        
+
         sel = win.Selection
         slide = None
         shape = None
@@ -404,6 +419,7 @@ def _get_current_slide_and_shape():
                 pass
 
         return slide, None
+
 
 def ppt_insert_text_at_cursor(s):
     """
@@ -539,7 +555,8 @@ def ppt_insert_text_at_cursor(s):
             )
 
         return found_shape
-    
+
+
 def _copy_font(src_font, dst_font):
     """Copies as many font properties as possible in a robust way."""
     props = ["Name", "Size", "Bold", "Italic", "Underline", "Color", "BaselineOffset"]
@@ -548,6 +565,7 @@ def _copy_font(src_font, dst_font):
             setattr(dst_font, p, getattr(src_font, p))
         except Exception:
             pass
+
 
 def ppt_insert_hidden_marker(marker_text: str, trailing_text: str = " "):
     """
@@ -622,6 +640,7 @@ def ppt_insert_hidden_marker(marker_text: str, trailing_text: str = " "):
             except Exception:
                 pass
 
+
 def _author_year_parts(item):
     data = item.get("data", {})
     creators = data.get("creators", []) or []
@@ -638,10 +657,12 @@ def _author_year_parts(item):
     year = m.group(1) if m else ""
     return author, year
 
+
 def _make_sig(item):
     author, year = _author_year_parts(item)
     year = year or "n.d."   # important: otherwise the signature would only contain the author
     return f"{author}|{year}"
+
 
 def collect_all_cites_by_key():
     with com_context("collect_all_cites_by_key"):
@@ -654,13 +675,16 @@ def collect_all_cites_by_key():
                         by_key[k] = c
             except Exception:
                 continue
+
         return by_key
-    
+
+
 def _replace_all(text, old, new):
     if not old or old == new:
         return text, 0
     n = text.count(old)
     return text.replace(old, new), n
+
 
 def normalize_sig_group(sig):
     """
@@ -761,6 +785,7 @@ def normalize_sig_group(sig):
             except Exception:
                 continue
 
+
 def renormalize_all_sig_groups():
     with com_context("renormalize_all_sig_groups"):
         sigs = []
@@ -777,8 +802,10 @@ def renormalize_all_sig_groups():
         for s in sigs:
             normalize_sig_group(s)
 
+
 HTTP_RETRY_STATUS = {429, 500, 502, 503, 504}
 HTTP_TRANSIENT_EXC = (requests.Timeout, requests.ConnectionError)
+
 
 def _retry_delay(resp, attempt: int) -> float:
     """
@@ -866,6 +893,7 @@ def _safe_get(url, *, headers=None, params=None, timeout=HTTP_TIMEOUT, retries=3
 
     raise last_exc or RuntimeError(f"HTTP GET failed without specific exception: {url}")
 
+
 class BibliographyFetchError(RuntimeError):
     """Bibliography entry could not be loaded via the Zotero Web API."""
     pass
@@ -889,6 +917,7 @@ def _get_docprop_by_name(props, name):
         pass
     return None
 
+
 def load_doc_state():
     with com_context("load_doc_state"):
         pres = _get_presentation()
@@ -900,6 +929,7 @@ def load_doc_state():
             return json.loads(p.Value)
         except Exception:
             return {}
+
 
 def save_doc_state(state):
     with com_context("save_doc_state"):
@@ -926,6 +956,7 @@ def _get_shape_tag(shape, key):
         except Exception:
             return ""
 
+
 def _set_shape_tag(shape, key, value):
     try:
         shape.Tags.Add(key, value)
@@ -940,6 +971,7 @@ def _set_shape_tag(shape, key, value):
         except Exception:
             pass
 
+
 def _load_shape_cites(shp):
     raw = _get_shape_tag(shp, CITE_TAG) or "[]"
     try:
@@ -948,11 +980,13 @@ def _load_shape_cites(shp):
     except Exception:
         return []
 
+
 def _save_shape_cites(shp, arr):
     try:
         _set_shape_tag(shp, CITE_TAG, json.dumps(arr, ensure_ascii=False))
     except Exception:
         pass
+
 
 # LEGACY/OPTIONAL: zero-width markers, currently unused for APA/Harvard but may be useful later
 def collect_all_cite_texts():
@@ -967,6 +1001,7 @@ def collect_all_cite_texts():
             except Exception:
                 continue
         return out
+
 
 def prune_cites_in_shape(shp):
     """Remove stored cites that no longer have a visible occurrence in the shape text."""
@@ -999,6 +1034,7 @@ def prune_cites_in_shape(shp):
 
     return kept
 
+
 def _format_authoryear_base_from_item(item):
     """Base citation without a/b suffix: (Author, Year), derived from a pyzotero item dict."""
     data = item.get("data", {})
@@ -1016,8 +1052,32 @@ def _format_authoryear_base_from_item(item):
     year = m.group(1) if m else ""
     return f"({author}, {year})" if year else f"({author}, n.d.)"
 
-def _format_mla_base_from_item(item):
-    """Return a minimal MLA-plausible parenthetical citation without locator support."""
+
+def _clean_cite_part(value, fallback=""):
+    text = re.sub(r"\s+", " ", value or "").strip()
+    return text or fallback
+
+
+def _shorten_cite_part(value, max_len=60):
+    text = _clean_cite_part(value, "")
+    if len(text) > max_len:
+        return text[: max_len - 3].rstrip() + "..."
+    return text
+
+
+def _mla_label_parts_from_item(item):
+    """
+    Return minimal MLA label parts.
+
+    label:
+    - author / corporate author / author pair / et al.
+    - fallback to shortTitle/title when no creator exists
+
+    qualifier:
+    - shortTitle preferred
+    - title fallback
+    - only used for creator-based labels during duplicate normalization
+    """
     data = item.get("data", {})
     creators = data.get("creators", []) or []
 
@@ -1027,6 +1087,11 @@ def _format_mla_base_from_item(item):
         if last:
             names.append(last)
 
+    title = _clean_cite_part(
+        data.get("shortTitle") or data.get("title") or "",
+        "",
+    )
+
     if names:
         if len(names) == 1:
             label = names[0]
@@ -1034,15 +1099,34 @@ def _format_mla_base_from_item(item):
             label = f"{names[0]} and {names[1]}"
         else:
             label = f"{names[0]} et al."
-    else:
-        label = data.get("shortTitle") or data.get("title") or "o. T."
-        label = re.sub(r"\s+", " ", label).strip()
-        if not label:
-            label = "o. T."
-        if len(label) > 60:
-            label = label[:57].rstrip() + "..."
+
+        label = _shorten_cite_part(label, 60)
+        qualifier = _shorten_cite_part(title, 60) if title else ""
+
+        if qualifier.casefold() == label.casefold():
+            qualifier = ""
+
+        return label, qualifier
+
+    label = _shorten_cite_part(title or "o. T.", 60)
+    return label, ""
+
+
+def _format_mla_cite_from_parts(label, qualifier=""):
+    label = _shorten_cite_part(label or "o. T.", 60)
+    qualifier = _shorten_cite_part(qualifier or "", 60)
+
+    if qualifier and qualifier.casefold() != label.casefold():
+        return f"({label}, {qualifier})"
 
     return f"({label})"
+
+
+def _format_mla_base_from_item(item):
+    """Return a minimal MLA-plausible parenthetical citation without locator support."""
+    label, _qualifier = _mla_label_parts_from_item(item)
+    return _format_mla_cite_from_parts(label)
+
 
 # LEGACY/OPTIONAL: zero-width markers, currently unused for APA/Harvard but may be useful later
 def _disambiguate_authoryear(base, existing_cites):
@@ -1057,6 +1141,7 @@ def _disambiguate_authoryear(base, existing_cites):
         suffix = chr(ord(suffix) + 1)
     return f"{stem}{suffix})"
 
+
 def _replace_first(text, old, new):
     if not old:
         return text, False
@@ -1064,6 +1149,173 @@ def _replace_first(text, old, new):
     if i < 0:
         return text, False
     return text[:i] + new + text[i+len(old):], True
+
+
+def _mla_label_from_cite_text(cite):
+    cite = (cite or "").strip()
+    if not (cite.startswith("(") and cite.endswith(")")):
+        return ""
+
+    inner = cite[1:-1].strip()
+    if not inner:
+        return ""
+
+    # Legacy fallback only. New records store mla_label explicitly.
+    return inner.split(",", 1)[0].strip()
+
+
+def _is_probable_legacy_mla_record(c):
+    style = c.get("style")
+    if style == "mla":
+        return True
+    if style:
+        return False
+
+    cite = (c.get("cite") or "").strip()
+    if not (cite.startswith("(") and cite.endswith(")")):
+        return False
+
+    # Avoid treating old APA/Harvard/Chicago author-date records as MLA.
+    if re.search(r",\s*(?:\d{4}|n\.d\.)[a-z]?\)$", cite):
+        return False
+
+    return True
+
+
+def normalize_mla_duplicate_labels():
+    """
+    MLA:
+    Normalize duplicate visible labels across different Zotero keys.
+
+    This is intentionally metadata-based:
+    - no Zotero Web API calls
+    - no CSL/style-engine refactor
+    - no locator/page support
+
+    Updates both:
+    - visible citation text
+    - ZP_CITES records
+    """
+    with com_context("normalize_mla_duplicate_labels"):
+        occ = []  # (scope, slide, shp, idx, key, old_cite, label, qualifier)
+
+        for scope, slide, shp in iter_citation_shapes():
+            try:
+                arr = prune_cites_in_shape(shp)
+                for i, c in enumerate(arr):
+                    if not _is_probable_legacy_mla_record(c):
+                        continue
+
+                    key = c.get("key")
+                    old_cite = c.get("cite") or ""
+                    label = c.get("mla_label") or _mla_label_from_cite_text(old_cite)
+                    qualifier = c.get("mla_qualifier") or ""
+
+                    if key and old_cite and label:
+                        occ.append(
+                            (scope, slide, shp, i, key, old_cite, label, qualifier)
+                        )
+            except Exception:
+                continue
+
+        if not occ:
+            return
+
+        labels_in_order = []
+        keys_by_label = {}
+        qualifier_by_label_key = {}
+
+        for _scope, _slide, _shp, _idx, key, _old_cite, label, qualifier in occ:
+            if label not in keys_by_label:
+                keys_by_label[label] = []
+                labels_in_order.append(label)
+
+            if key not in keys_by_label[label]:
+                keys_by_label[label].append(key)
+
+            if qualifier and (label, key) not in qualifier_by_label_key:
+                qualifier_by_label_key[(label, key)] = qualifier
+
+        new_by_label_key = {}
+
+        for label in labels_in_order:
+            keys = keys_by_label[label]
+
+            if len(keys) == 1:
+                key = keys[0]
+                new_by_label_key[(label, key)] = _format_mla_cite_from_parts(label)
+                continue
+
+            for key in keys:
+                qualifier = qualifier_by_label_key.get((label, key), "")
+                new_by_label_key[(label, key)] = _format_mla_cite_from_parts(
+                    label,
+                    qualifier,
+                )
+
+        by_shape = {}
+        for scope, slide, shp, idx, key, old_cite, label, qualifier in occ:
+            try:
+                slide_id = int(slide.SlideID)
+                shape_id = _get_shape_id(shp)
+            except Exception:
+                continue
+
+            shape_key = (scope, slide_id, shape_id)
+            by_shape.setdefault(shape_key, {"shape": shp, "items": []})
+            by_shape[shape_key]["items"].append(
+                (idx, key, old_cite, label, qualifier)
+            )
+
+        for _shape_key, pack in by_shape.items():
+            shp = pack["shape"]
+            items = pack["items"]
+
+            try:
+                tr = shp.TextFrame.TextRange
+                txt = tr.Text or ""
+                arr = _load_shape_cites(shp)
+
+                text_changed = False
+                tags_changed = False
+
+                for idx, key, old_cite, label, qualifier in sorted(
+                    items,
+                    key=lambda x: x[0],
+                ):
+                    new_cite = new_by_label_key.get((label, key), old_cite)
+
+                    if new_cite != old_cite:
+                        txt, replaced = _replace_first(txt, old_cite, new_cite)
+                        if replaced:
+                            text_changed = True
+
+                    if idx < len(arr) and arr[idx].get("key") == key:
+                        if arr[idx].get("cite") != new_cite:
+                            arr[idx]["cite"] = new_cite
+                            tags_changed = True
+
+                        if arr[idx].get("style") != "mla":
+                            arr[idx]["style"] = "mla"
+                            tags_changed = True
+
+                        if not arr[idx].get("mla_label"):
+                            arr[idx]["mla_label"] = label
+                            tags_changed = True
+
+                        if qualifier and not arr[idx].get("mla_qualifier"):
+                            arr[idx]["mla_qualifier"] = qualifier
+                            tags_changed = True
+
+                if text_changed:
+                    tr.Text = txt
+
+                if text_changed or tags_changed:
+                    _save_shape_cites(shp, arr)
+
+            except Exception:
+                continue
+
 
 def set_bibliography_anchor_from_selection():
     with com_context("set_bibliography_anchor_from_selection"):
@@ -1171,6 +1423,7 @@ def set_bibliography_anchor_from_selection():
                 "Bitte: Textfeld einmal anklicken (Rahmen sichtbar), dann erneut „Bibliographie-Ziel…“."
             )
 
+
 def _resolve_anchor_list():
     with com_context("_resolve_anchor_list"):
         pres = _get_presentation()
@@ -1264,8 +1517,10 @@ def _resolve_anchor_list():
         _debug(f"Resolve anchors: found={len(resolved)}")
         return resolved
 
+
 def has_bibliography_anchor():
     return len(_resolve_anchor_list()) > 0
+
 
 def get_status_summary():
     state = load_doc_state()
@@ -1279,6 +1534,7 @@ def get_status_summary():
         anchor_txt = "NICHT gesetzt"
 
     return f"Stil: {code_to_label(style)} | Zitate: {len(keys)} | Bibliographie-Ziel: {anchor_txt}"
+
 
 def _is_title_placeholder(shp) -> bool:
     """Return True if the shape is very likely a title placeholder."""
@@ -1299,11 +1555,13 @@ def _is_title_placeholder(shp) -> bool:
 
     return False
 
+
 def _placeholder_type(shp):
     try:
         return int(shp.PlaceholderFormat.Type)
     except Exception:
         return None
+
 
 def _find_best_text_placeholder(slide, src_shape=None):
     """
@@ -1355,11 +1613,12 @@ def _find_best_text_placeholder(slide, src_shape=None):
         if score > best_score:
             best = shp
             best_score = score
-        
+
     if best is None:
         _debug("Find placeholder: none found (allowed types: {2,7})")
 
     return best
+
 
 def _get_slide_title_text(slide):
     """Reads the text of a slide title placeholder."""
@@ -1374,6 +1633,7 @@ def _get_slide_title_text(slide):
     except Exception:
         pass
     return ""
+
 
 def _set_slide_title_text(slide, text):
     """Sets the text of a slide title placeholder."""
@@ -1455,9 +1715,11 @@ def html_to_text(html_str):
     text = html.unescape(text)
     return re.sub(r"\s+\n", "\n", text).strip()
 
+
 def _strip_ieee_bibliography_label(entry: str) -> str:
     """Remove numbering returned by Zotero for single IEEE bibliography entries."""
     return re.sub(r"^\s*(?:\[\d+\]|\d+\.)\s*", "", entry or "").strip()
+
 
 def get_bibliography_entry_webapi(api_key, library_id, library_type, item_key, style):
     base = f"https://api.zotero.org/{library_type}s/{library_id}"
@@ -1553,7 +1815,7 @@ def _try_fit_entries_into_shape(shape, entries, preferred_size=PREF_FONT_SIZE, m
 
     tr = shape.TextFrame.TextRange
     tr.Text = ""
-    
+
     def write_with_size(sz, upto):
         tr.Text = ""
         for i in range(upto):
@@ -1577,7 +1839,7 @@ def _try_fit_entries_into_shape(shape, entries, preferred_size=PREF_FONT_SIZE, m
         size = preferred_size
         while size >= min_size:
             write_with_size(size, count)
-            if not overflows():                
+            if not overflows():
                 _debug(f"Fit OK: count={count} size={size}")
                 return count, size
             size -= 1
@@ -1586,8 +1848,9 @@ def _try_fit_entries_into_shape(shape, entries, preferred_size=PREF_FONT_SIZE, m
         write_with_size(min_size, 1)
         _debug("Fit WARN: only 1 entry fits at minimum size")
         return 1, min_size
-        
+
     return 0, preferred_size
+
 
 def update_bibliography(keys, style, api_key, library_id, library_type, numbering=None):
     _debug(f"Bib update: keys={len(keys)} style={style}")
@@ -1800,8 +2063,10 @@ def scan_all_placeholders():
 
 IEEE_CITE_RE = re.compile(r"^\[\d+\]$")
 
+
 def _is_ieee_cite_record(c):
     return c.get("style") == "ieee" or IEEE_CITE_RE.match(c.get("cite") or "")
+
 
 def _collect_ieee_cites_in_shape(shp, arr=None):
     """
@@ -1874,6 +2139,7 @@ def _collect_ieee_cites_in_shape(shp, arr=None):
     positioned.sort(key=lambda hit: (hit["start"], hit["idx"]))
     return txt, positioned, fallback
 
+
 def build_ieee_numbering_from_document():
     """Build stable IEEE numbering from stored cite tags in document order."""
     with com_context("build_ieee_numbering_from_document"):
@@ -1896,6 +2162,7 @@ def build_ieee_numbering_from_document():
 
         return numbering
 
+
 def resync_bibliography_keys_from_document(state=None):
     with com_context("resync_bibliography_keys_from_document"):
         keys = []
@@ -1916,6 +2183,7 @@ def resync_bibliography_keys_from_document(state=None):
         state["bib_keys"] = keys
         save_doc_state(state)
         return keys
+
 
 def insert_ieee_placeholder(key, *, parent=None) -> bool:
     """
@@ -1951,6 +2219,7 @@ def insert_ieee_placeholder(key, *, parent=None) -> bool:
 
     run_in_thread("IEEEInsert", _work, ui_parent=parent)
     return True
+
 
 def renumber_ieee_and_update(*, parent=None) -> bool:
     with com_context("renumber_ieee_and_update"):
@@ -2043,9 +2312,7 @@ def renumber_ieee_and_update(*, parent=None) -> bool:
 # =========================================================
 
 
-
 # ===================== CLI / Ribbon actions =====================
-
 def _get_action_style(state):
     return state.get("style", DEFAULT_STYLE) or DEFAULT_STYLE
 
@@ -2080,6 +2347,11 @@ def run_document_update_workflow(parent=None) -> str:
     if style in ("apa", "harvard1"):
         renormalize_all_sig_groups()
         _debug("DocumentUpdate: renormalize_all_sig_groups done")
+        new_keys = resync_bibliography_keys_from_document(state)
+
+    if style == "mla":
+        normalize_mla_duplicate_labels()
+        _debug("DocumentUpdate: normalize_mla_duplicate_labels done")
         new_keys = resync_bibliography_keys_from_document(state)
 
     if style == "ieee":
@@ -2148,6 +2420,7 @@ def run_rewrite_bibliography_workflow(parent=None) -> str:
         return f"Bibliographie aktualisiert ({code_to_label(style)})."
     return "Bibliographie geleert."
 
+
 def run_set_bibliography_target_workflow(parent=None) -> str:
     """
     Shared implementation for setting the bibliography target.
@@ -2199,6 +2472,7 @@ def run_set_bibliography_target_workflow(parent=None) -> str:
 
     return f"Bibliographie-Ziel gesetzt. Gefundene Anker: {anchor_count} (noch keine Zitate)."
 
+
 def run_document_update_action(parent=None) -> str:
     """CLI/Ribbon wrapper for the shared document update workflow."""
     return run_document_update_workflow(parent=parent)
@@ -2219,6 +2493,7 @@ ACTION_CHOICES = {
     "rewrite-bibliography": run_rewrite_bibliography_action,
     "set-bibliography-target": run_set_bibliography_target_action,
 }
+
 
 def run_cli_action(action: str) -> int:
     """
@@ -2305,8 +2580,10 @@ def run_cli_action(action: str) -> int:
 def code_to_label(code):
     return next((name for name, c in STYLE_CHOICES if c == code), code)
 
+
 def label_to_code(label):
     return next((c for name, c in STYLE_CHOICES if name == label), DEFAULT_STYLE)
+
 
 def run_in_thread(name: str, fn, *, on_error=None, ui_parent=None):
     """
@@ -2346,6 +2623,7 @@ def run_in_thread(name: str, fn, *, on_error=None, ui_parent=None):
 
     threading.Thread(target=_wrap, daemon=True).start()
 
+
 def show_missing_zotero_config(parent):
     messagebox.showerror(
         "Zotero not configured",
@@ -2355,6 +2633,7 @@ def show_missing_zotero_config(parent):
         "Then try again.",
         parent=parent
     )
+
 
 class PickerApp:
     def __init__(self, root):
@@ -2426,7 +2705,7 @@ class PickerApp:
         listfrm.columnconfigure(0, weight=1)
 
         self.listbox.bind("<Double-Button-1>", self.on_insert_click)
-        
+
         # --- Optional UX: horizontal scrolling with Shift + mouse wheel ---
         def _on_mousewheel(ev):
             # Windows/macOS: ev.delta; Shift pressed -> horizontal, otherwise vertical
@@ -2561,7 +2840,7 @@ class PickerApp:
         if self.z is None:
             self.set_status("Bitte Zotero konfigurieren…")
             return
-        
+
         # Debounce: do not search immediately on every key press
         q = self.query_var.get().strip()
         if self._search_after_id is not None:
@@ -2569,7 +2848,7 @@ class PickerApp:
                 self.root.after_cancel(self._search_after_id)
             except Exception:
                 pass
-  
+
         def _kickoff():
             self._search_token  += 1
             token = self._search_token
@@ -2590,7 +2869,7 @@ class PickerApp:
     def update_results(self, items, token=None, q=None):
         # Keep dicts only
         incoming = [it for it in (items or []) if isinstance(it, dict)]
-        
+
         def _ui():
             # Latest-only: ignore older/outdated search threads to avoid flicker
             if token is not None and token != self._search_token:
@@ -2697,12 +2976,30 @@ class PickerApp:
             if style_local in ("apa", "harvard1") and key in by_key:
                 cite = by_key[key].get("cite") or _format_authoryear_base_from_item(it)
                 sig = by_key[key].get("sig") or _make_sig(it)
+                record_extra = {}
+
+            elif style_local == "mla":
+                sig = _make_sig(it)
+                label, qualifier = _mla_label_parts_from_item(it)
+
+                if key in by_key and _is_probable_legacy_mla_record(by_key[key]):
+                    cite = by_key[key].get("cite") or _format_mla_base_from_item(it)
+                else:
+                    cite = _format_mla_base_from_item(it)
+
+                record_extra = {
+                    "style": "mla",
+                    "mla_label": label,
+                }
+                if qualifier:
+                    record_extra["mla_qualifier"] = qualifier
+
             else:
                 sig = _make_sig(it)
-                if style_local == "mla":
-                    cite = _format_mla_base_from_item(it)
-                else:
-                    cite = _format_authoryear_base_from_item(it)
+                cite = _format_authoryear_base_from_item(it)
+                record_extra = {
+                    "style": style_local,
+                }
 
             # 3) Insert citation at cursor position; strictly requires a real text cursor
             shp = ppt_insert_text_at_cursor(cite)
@@ -2710,13 +3007,25 @@ class PickerApp:
 
             # 4) Store citation in the tag of the actual shape used
             arr = _load_shape_cites(shp)
-            arr.append({"key": key, "cite": cite, "sig": sig})
+            record = {
+                "key": key,
+                "cite": cite,
+                "sig": sig,
+            }
+            record.update(record_extra)
+            arr.append(record)
             _save_shape_cites(shp, arr)
 
-            # 5) APA / Harvard: normalize disambiguation
+            # 5) Style-specific citation normalization
             if style_local in ("apa", "harvard1"):
                 normalize_sig_group(sig)
                 _debug(f"Normalized sig group: {sig}")
+
+            elif style_local == "mla":
+                normalize_mla_duplicate_labels()
+                refreshed = collect_all_cites_by_key()
+                cite = (refreshed.get(key) or {}).get("cite") or cite
+                _debug("Normalized MLA duplicate labels")
 
             # 6) Rebuild bibliography keys from the document and write doc_state
             state["bib_keys"] = resync_bibliography_keys_from_document(state)
@@ -2760,7 +3069,7 @@ class PickerApp:
             _work,
             ui_parent=self.root
         )
-        
+
     def on_set_anchor(self):
         # Do not open multiple anchor windows
         if getattr(self, "_anchor_win", None) and self._anchor_win.winfo_exists():
@@ -2902,7 +3211,7 @@ class PickerApp:
 
         # Run bibliography update in the background
         run_in_thread("BibUpdate", _work, ui_parent=self.root)
-        
+
     def on_cleanup(self):
         _debug("Document update clicked")
 
@@ -2929,7 +3238,7 @@ class PickerApp:
 
         # Run document update workflow in background worker
         run_in_thread("DocumentUpdate", _work, ui_parent=self.root)
-            
+
 
 def main():
     parser = argparse.ArgumentParser(

@@ -187,7 +187,8 @@ The **Dokument aktualisieren** workflow:
 - tolerates missing bibliography targets
 - repairs APA/Harvard suffix disambiguation
 - runs IEEE renumbering across slide and notes citations
-- performs only the base citation-state resync for MLA and Chicago Author-Date
+- normalizes MLA duplicate visible labels
+- performs only the base citation-state resync for Chicago Author-Date
 
 This is the preferred user-facing workflow for document maintenance.
 
@@ -245,6 +246,14 @@ Stored citation records contain at least:
 - `cite`: currently visible citation text
 - optional style-specific metadata such as `sig` or `style`
 
+For MLA records created with `v0.1.0-alpha.24` or later, additional metadata may be stored:
+
+- `style`: `mla`
+- `mla_label`: the base visible MLA label, for example an author or corporate author
+- `mla_qualifier`: a short-title/title qualifier used when multiple different Zotero items would otherwise share the same visible MLA label
+
+MLA duplicate-label normalization updates the visible citation text and the stored `ZP_CITES` record together. It is intentionally metadata-based and does not call the Zotero Web API during document update.
+
 Important rules:
 - Visible citation text and stored cite metadata must be updated together.
 - Cleanup must derive bibliography keys from stored citation metadata.
@@ -272,7 +281,7 @@ This keeps the existing citation-state model unchanged while allowing notes cita
 
 ## Citation style validation status
 
-As of `v0.1.0-alpha.19`, the base citation style matrix has been retested manually with slide and notes citations.
+As of `v0.1.0-alpha.24`, the base citation style matrix has been retested manually with slide and notes citations.
 
 The scope of this validation was limited to the current alpha base functionality:
 
@@ -294,13 +303,13 @@ Locator and detail references such as pages, chapters, clauses, figures, and tab
 | --- | --- | --- |
 | APA | Passed | Insert on slide and in notes, notes citation in bibliography, notes deletion cleanup, persistence, document update, and bibliography rewrite passed. |
 | IEEE | Passed | Numbering across `Slide 1 → Notes 1 → Slide 2` produced `[1]`, `[2]`, `[3]`; deleting a notes citation renumbered remaining citations and cleaned the bibliography correctly. |
-| Chicago Author-Date | Passed | Insert on slide and in notes, notes citation deletion, and bibliography cleanup passed. |
+| Chicago Author-Date | Passed in alpha scope | Insert on slide and in notes, notes citation deletion, bibliography cleanup, and unchanged base behavior passed. Duplicate author/year disambiguation remains a follow-up. |
 | Harvard | Passed | Insert on slide and in notes, notes citation deletion, and bibliography cleanup passed. |
-| MLA | Passed in alpha scope | Insert on slide and in notes, notes citation deletion, and bibliography cleanup passed. MLA notes citations did not regress to author-date rendering. Locator/page support and full CSL-style validation remain future work. |
+| MLA | Passed in alpha scope | Insert on slide and in notes, notes citation deletion, bibliography cleanup, duplicate visible-label handling, deletion rollback, and no-collision behavior passed. MLA notes citations did not regress to author-date rendering. Locator/page support and full CSL-style validation remain future work. |
 
 Open follow-up topics:
 
-1. MLA disambiguation for identical visible labels remains future work.
+1. Chicago Author-Date duplicate author/year disambiguation remains future work.
 2. Locator/detail reference support must be designed as a separate feature block.
 3. Deeper CSL/style-engine validation remains future work.
 4. Signed/corporate PPAM rollout, installer packaging, and broader launcher deployment hardening remain future work.

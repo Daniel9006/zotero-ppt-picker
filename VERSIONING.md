@@ -9,13 +9,15 @@ This repository uses a pragmatic, small-team-friendly versioning approach:
 
 **Tags are the source of truth.**
 
-Current public baseline: `v0.1.0-alpha.23`
+Current public baseline: `v0.1.0-alpha.24`
 
 Current development focus:
-- technical stabilization of citation and bibliography mechanics
-- persistent citation state and document resync reliability
-- PowerPoint Ribbon and CLI actions for existing picker workflows
-- improving PowerPoint launcher usability without adding duplicate workflow logic
+- documenting and prioritizing remaining alpha follow-ups
+- preventing unsupported mixed citation styles within one presentation
+- improving remaining style-specific edge cases, especially Chicago Author-Date duplicate author/year disambiguation
+- treating locator/page support as a separate future feature block
+- keeping PowerPoint Ribbon/CLI workflows stable without adding duplicate workflow logic
+- preparing the later Phase 1 style-engine/configuration refactor
 
 ---
 
@@ -656,3 +658,66 @@ instability observed during bibliography target setup and writing.
 
 **Overall result**
 - `v0.1.0-alpha.23 – PowerPoint launcher UX polish`: completed, tested, and release-ready.
+
+### v0.1.0-alpha.24 – MLA duplicate-label handling
+
+**Scope**
+- Minimal MLA duplicate visible-label handling.
+- No CSL/style-engine refactor.
+- No locator/page support.
+- No Zotero Web API or bibliography generation changes.
+- No PowerPoint Ribbon, launcher, COM, or threading changes.
+
+**Symptoms fixed**
+- Different Zotero items could produce identical visible MLA in-text citations, especially for institutional authors, for example:
+  - `(CAN in Automation e.V.)`
+  - `(CAN in Automation e.V.)`
+- The duplicate visible labels made it unclear which source a citation referred to.
+
+**Resolution**
+- Added minimal MLA label-part extraction with a short-title/title qualifier.
+- New MLA citation records store additional metadata:
+  - `style: "mla"`
+  - `mla_label`
+  - `mla_qualifier`
+- Added MLA duplicate-label normalization across normal slide shapes and PowerPoint notes.
+- `Dokument aktualisieren` now rebuilds MLA duplicate-label normalization after deletion or cleanup.
+- Visible MLA citations and stored `ZP_CITES` metadata are updated together.
+- MLA duplicate-label rollback is supported when only one item with the same MLA base label remains.
+
+**Behavior**
+- Non-colliding MLA citations still render as:
+  - `(Author)`
+  - `(Author and Author)`
+  - `(Corporate Author)`
+- Colliding MLA labels render with a minimal qualifier, for example:
+  - `(ISO copyright office, Road vehicles — Controller area network (CAN) — Part 2: H...)`
+  - `(ISO copyright office, Road vehicles — Controller area network (CAN) — Part 1: D...)`
+- If the collision is removed and only one item with that MLA base label remains, the visible citation can roll back to the simple base label.
+
+**Manual retest result**
+- Static checks: PASS.
+- `python -m py_compile zotero_picker_ppt.py`: PASS.
+- `git diff --check`: PASS.
+- MLA duplicate institutional/corporate-author labels on slides: PASS.
+- MLA duplicate labels across slide and notes citations: PASS.
+- MLA deletion with remaining collision: PASS.
+- MLA rollback after collision removal: PASS.
+- MLA without collision remains unqualified: PASS.
+- APA regression: PASS.
+- Harvard regression: PASS.
+- IEEE regression: PASS.
+- Chicago Author-Date regression: PASS.
+- Bibliography rebuilds after document update: PASS.
+- Log inspection: PASS.
+
+**Known limitations**
+- No locator/page support.
+- No full MLA/CSL style validation.
+- Legacy MLA records without stored title metadata may not be fully retroactively disambiguated.
+- No automatic migration of older documents beyond the normal document update workflow.
+- Chicago Author-Date duplicate author/year disambiguation is not implemented yet and remains a separate follow-up.
+- Mixed citation styles in one presentation are not prevented yet and should be handled as a future workflow guard.
+
+**Overall result**
+- `v0.1.0-alpha.24 – MLA duplicate-label handling`: completed, tested, and release-ready.
