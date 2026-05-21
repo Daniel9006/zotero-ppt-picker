@@ -189,6 +189,8 @@ action, or PPAM behavior.
 | [ ] | `Bibliographie-Ziel festlegen` | Selected text box is saved as target and bibliography is updated when citation keys exist. |
 | [ ] | `Bibliographie neu schreiben` | Bibliography is rebuilt and a German success dialog appears. |
 | [ ] | `Dokument aktualisieren` | Document state and bibliography are updated and a German success dialog appears. |
+| [ ] | Click `Zitation einfuegen` while the Picker is already open but hidden behind PowerPoint. | The existing Picker window is brought to the foreground and no second Picker window opens. |
+| [ ] | Click any Ribbon button. | No transient command window is visible to the user. |
 
 ### `.ppam` add-in smoke checks
 
@@ -199,6 +201,9 @@ action, or PPAM behavior.
 | [ ] | `Bibliographie-Ziel festlegen` | Target setup works from the add-in. |
 | [ ] | `Bibliographie neu schreiben` | Bibliography rewrite works from the add-in. |
 | [ ] | `Dokument aktualisieren` | Document update works from the add-in. |
+| [ ] | Rebuild the `.ppam` after VBA launcher changes. | The add-in contains the updated launcher behavior. |
+| [ ] | Click `Zitation einfuegen` while the Picker is already open but hidden behind PowerPoint. | The existing Picker window is brought to the foreground and no second Picker window opens. |
+| [ ] | Click any Ribbon button. | No transient command window is visible to the user. |
 
 Classify failures as one of:
 

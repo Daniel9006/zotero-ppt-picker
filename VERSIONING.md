@@ -9,13 +9,13 @@ This repository uses a pragmatic, small-team-friendly versioning approach:
 
 **Tags are the source of truth.**
 
-Current public baseline: `v0.1.0-alpha.22`
+Current public baseline: `v0.1.0-alpha.23`
 
 Current development focus:
 - technical stabilization of citation and bibliography mechanics
 - persistent citation state and document resync reliability
 - PowerPoint Ribbon and CLI actions for existing picker workflows
-- avoiding parallel citation or bibliography implementations outside Python
+- improving PowerPoint launcher usability without adding duplicate workflow logic
 
 ---
 
@@ -614,4 +614,45 @@ instability observed during bibliography target setup and writing.
 - No full CSL/style-engine refactor.
 
 **Overall result**
-- `v0.1.0-alpha.22 – PowerPoint Ribbon actions and workflow unification`: completed, tested, and release-ready.
+- `v0.1.0-alpha.22 – PowerPoint Ribbon actions and workflow unification`: completed, tested, tagged, and released.
+
+### v0.1.0-alpha.23 – PowerPoint launcher UX polish
+
+**Scope**
+- Improved the PowerPoint Ribbon launcher user experience.
+- Hid the transient command window when starting actions from PowerPoint.
+- Reused an already open Picker window instead of starting a second Picker instance.
+- Rebuilt and retested the `.ppam` add-in with the updated VBA launcher.
+
+**Behavior**
+- Clicking **Zitation einfügen** opens the Picker if it is not already running.
+- If the Picker is already open but hidden behind PowerPoint, clicking **Zitation einfügen** brings the existing Picker window to the foreground.
+- Ribbon action buttons no longer show a briefly flashing command window.
+- Existing action behavior remains unchanged:
+  - **Dokument aktualisieren**
+  - **Bibliographie neu schreiben**
+  - **Bibliographie-Ziel festlegen**
+
+**Fixes**
+- Changed the VBA launcher call from visible command execution to hidden command execution.
+- Added Picker-window reuse via `WScript.Shell.AppActivate("Zotero Picker")`.
+- Avoided duplicate Picker windows when users click **Zitation einfügen** repeatedly.
+
+**Manual retest result**
+- `.pptm` launcher button without visible console window: PASS.
+- `.ppam` rebuilt from the updated `.pptm`: PASS.
+- `.ppam` **Zitation einfügen** with existing hidden Picker window: PASS.
+- No second Picker window opened during repeated **Zitation einfügen** clicks: PASS.
+- Citation insertion with the reused Picker window: PASS.
+- Bibliography auto-update after inserted citations: PASS.
+- Log inspection: PASS.
+
+**Known limitations**
+- Picker reuse depends on the Picker window title matching `Zotero Picker`.
+- The `.ppam` file is still created manually and is not committed to the repository.
+- The add-in remains an unsigned local add-in.
+- Users may still need to adjust PowerPoint Trust Center settings.
+- The local `PROJECT_ROOT` path is still edited manually in VBA.
+
+**Overall result**
+- `v0.1.0-alpha.23 – PowerPoint launcher UX polish`: completed, tested, and release-ready.

@@ -133,6 +133,16 @@ and runs the actual workflow in a worker thread. This matches the Picker-App
 execution model more closely than a synchronous command-line call and avoids
 PowerPoint COM instability observed in headless action runs.
 
+### Launcher window behavior
+
+Ribbon buttons are started through `scripts/start_picker.cmd`, but the VBA
+launcher hides the transient command window. Users should not see a flashing
+console window when clicking Ribbon buttons.
+
+For the Picker UI button, the VBA launcher first checks whether a Picker window
+is already open. If an existing `Zotero Picker` window is found, it is brought to
+the foreground instead of starting a second Picker instance.
+
 ---
 
 ## Setup in PowerPoint
@@ -344,6 +354,14 @@ Bib update OK:
 
 If no bibliography target is found, select the bibliography text box and run
 `Bibliographie-Ziel festlegen`.
+
+### Picker is already open but hidden behind PowerPoint
+
+Click `Zitation einfuegen` again. The launcher should bring the existing Picker
+window to the foreground instead of opening a second Picker window.
+
+If this does not work, check whether the Picker window title still starts with
+`Zotero Picker`, because the VBA launcher uses this title for window activation.
 
 ---
 
