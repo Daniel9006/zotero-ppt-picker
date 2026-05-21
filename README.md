@@ -165,7 +165,16 @@ Bibliography status messages use display style names such as `Harvard` or `Chica
 
 The picker currently provides selectable citation styles at different validation levels.
 
-Current alpha status as of `v0.1.0-alpha.24`:
+Current alpha status as of `v0.1.0-alpha.25`:
+
+One PowerPoint presentation supports one citation style at a time.
+
+- If the presentation has no stored citations, the citation style can be changed freely.
+- If citations already exist, inserting a citation with a different style is blocked.
+- Changing the style of a presentation with existing citations starts a controlled full-document conversion instead of silently changing only `state["style"]`.
+- The conversion rewrites stored `ZP_CITES` records, visible citation text, and the bibliography when a bibliography target exists.
+
+Base style status:
 
 - APA: passed in current alpha scope, including slide and notes citations
 - IEEE: passed in current alpha scope, including slide and notes citations
@@ -190,7 +199,7 @@ Known style limitations:
 
 - Chicago Author-Date currently does not disambiguate different sources with the same author/year as `2024a` / `2024b`; this remains a separate follow-up and was not changed in `v0.1.0-alpha.24`.
 
-Citations are persisted internally via PowerPoint shape tags. Visible citation text alone is not sufficient; document updates and bibliography rebuilds depend on the stored citation metadata.
+Citations are persisted internally via PowerPoint shape tags. Visible citation text alone is not sufficient; document updates, bibliography rebuilds, mixed-style detection, and controlled style conversion depend on the stored citation metadata.
 
 The bibliography anchor remains limited to normal slide shapes. Notes citations can contribute to the bibliography, but bibliography targets are not searched for or set inside NotesPage shapes.
 

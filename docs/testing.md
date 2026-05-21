@@ -244,6 +244,46 @@ Notes:
 
 ---
 
+## Citation Style Guard and Conversion Checks
+
+Use these checks for `v0.1.0-alpha.25` and later when citation style state,
+`ZP_CITES`, or style selection behavior changes.
+
+### Guard core
+
+| Done | Check | Expected result |
+| --- | --- | --- |
+| [ ] | Empty presentation: switch citation style. | Style changes without conversion dialog. |
+| [ ] | APA citation exists: switch Picker to MLA and try insert without conversion. | Insert is blocked; no visible citation or `ZP_CITES` record is added. |
+| [ ] | APA citation exists: choose MLA. | Conversion confirmation appears. |
+| [ ] | Conversion confirmation: cancel. | Previous style remains active and the combobox resets. |
+| [ ] | Delete all citations, run document update, then switch style. | No conversion dialog appears. |
+
+### Conversion matrix
+
+| Done | Check | Expected result |
+| --- | --- | --- |
+| [ ] | APA -> MLA | Visible citations, `ZP_CITES`, bibliography, and status use MLA. |
+| [ ] | MLA -> APA | Visible citations, `ZP_CITES`, bibliography, and status use APA. |
+| [ ] | APA -> IEEE | Visible citations are renumbered in document order and bibliography uses IEEE numbering. |
+| [ ] | IEEE -> APA | Visible citations become author-year citations and bibliography uses APA. |
+| [ ] | Harvard -> APA | Visible citations and tags convert; author-year normalization remains correct. |
+| [ ] | Chicago Author-Date -> APA | Visible citations and tags convert; bibliography uses APA. |
+| [ ] | Conversion with bibliography target. | Bibliography is rewritten after successful conversion. |
+| [ ] | Conversion without bibliography target. | Conversion succeeds and reports no bibliography target dependency. |
+| [ ] | Notes-only citations. | Notes citations are converted and bibliography keys are rebuilt. |
+| [ ] | Slide + notes citations. | Both scopes are converted in document order. |
+
+### Existing mixed or legacy state
+
+| Done | Check | Expected result |
+| --- | --- | --- |
+| [ ] | Legacy author-year records without `style`. | Existing document style is inferred from previous `state["style"]` where plausible. |
+| [ ] | Unknown records. | Insert is blocked; document update and bibliography rewrite do not crash. |
+| [ ] | Existing mixed-style file. | New insert is blocked; explicit style conversion can be tested separately. |
+
+---
+
 ## Notes Citation Checks
 
 Use these checks for releases that include or may affect notes citation support.
@@ -401,6 +441,10 @@ Insert fallback failed
 NotesPage
 notes fallback
 launcher
+Mixed citation style blocked
+Document citation style conversion started
+Document citation style conversion completed
+Document citation style conversion failed
 ```
 
 Expected result:

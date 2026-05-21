@@ -35,6 +35,9 @@ STYLE_CHOICES = [
     ("Harvard", "harvard1"),
     ("MLA", "mla"),
 ]
+STYLE_CODES = {code for _label, code in STYLE_CHOICES}
+AUTHOR_YEAR_STYLES = {"apa", "harvard1", "chicago-author-date"}
+UNKNOWN_STYLE = "unknown"
 PREF_FONT_SIZE = 14
 MIN_FONT_SIZE  = 10
 
@@ -1182,6 +1185,149 @@ def _is_probable_legacy_mla_record(c):
     return True
 
 
+
+
+def infer_cite_record_style(cite_record, fallback_style=None):
+    """Infer a citation record style without mutating legacy metadata."""
+    if not isinstance(cite_record, dict):
+        return UNKNOWN_STYLE
+
+    explicit = (cite_record.get("style") or "").strip()
+    if explicit in STYLE_CODES:
+        return explicit
+    if explicit:
+        return UNKNOWN_STYLE
+
+    cite = (cite_record.get("cite") or "").strip()
+    if not cite:
+        return UNKNOWN_STYLE
+
+    if IEEE_CITE_RE.match(cite) or PH_RE.match(cite):
+        return "ieee"
+
+    if _is_probable_legacy_mla_record(cite_record):
+        return "mla"
+
+    fallback = fallback_style if fallback_style in STYLE_CODES else None
+    if cite_record.get("sig") and fallback in AUTHOR_YEAR_STYLES:
+        return fallback
+
+    if re.search(r",\s*(?:\d{4}|n\.d\.)[a-z]?\)$", cite):
+        if fallback in AUTHOR_YEAR_STYLES:
+            return fallback
+        return UNKNOWN_STYLE
+
+    return UNKNOWN_STYLE
+
+
+def collect_document_citation_styles(fallback_style=None):
+    """Return distinct citation styles found in active slide and notes cite records."""
+    with com_context("collect_document_citation_styles"):
+        styles = []
+        for _scope, _slide, shp in iter_citation_shapes():
+            try:
+                for c in prune_cites_in_shape(shp):
+                    style = infer_cite_record_style(c, fallback_style=fallback_style)
+                    if style not in styles:
+                        styles.append(style)
+            except Exception:
+                continue
+        return styles
+
+
+def get_existing_document_style(fallback_style=None):
+    """Return the single known document style, or None for empty/mixed/unknown state."""
+    styles = collect_document_citation_styles(fallback_style=fallback_style)
+    known = [s for s in styles if s != UNKNOWN_STYLE]
+    if len(known) == 1 and len(styles) == 1:
+        return known[0]
+    return None
+
+
+def find_mixed_style_conflicts(target_style, fallback_style=None):
+    """
+    Detect whether target_style would create or preserve an unsupported
+    mixed/unknown citation-style state.
+    """
+    styles = collect_document_citation_styles(fallback_style=fallback_style)
+    if not styles:
+        return {
+            "blocked": False,
+            "reason": "empty",
+            "styles": [],
+            "document_style": None,
+        }
+
+    known = [s for s in styles if s != UNKNOWN_STYLE]
+    has_unknown = UNKNOWN_STYLE in styles
+
+    if has_unknown or len(known) != 1:
+        return {
+            "blocked": True,
+            "reason": "mixed-or-unknown",
+            "styles": styles,
+            "document_style": None,
+        }
+
+    document_style = known[0]
+    return {
+        "blocked": document_style != target_style,
+        "reason": "different-style" if document_style != target_style else "same-style",
+        "styles": styles,
+        "document_style": document_style,
+    }
+
+
+def _document_style_description(styles, document_style=None):
+    if document_style:
+        return f"im Stil „{code_to_label(document_style)}“"
+    labels = [code_to_label(s) if s != UNKNOWN_STYLE else "unbekannt" for s in styles]
+    if labels:
+        return "mit mehreren oder nicht eindeutig erkennbaren Stilen (" + ", ".join(labels) + ")"
+    return "mit nicht eindeutig erkennbarem Zitierstil"
+
+
+def _show_message(parent, kind, title, message):
+    show = messagebox.showwarning if kind == "warning" else messagebox.showerror
+    if parent is not None:
+        parent.after(0, lambda: show(title, message, parent=parent))
+    else:
+        show(title, message)
+
+
+def block_mixed_style_insert_or_show_message(parent, target_style, fallback_style=None):
+    conflict = find_mixed_style_conflicts(target_style, fallback_style=fallback_style)
+    if not conflict["blocked"]:
+        return False
+
+    LOG.warning(
+        "Mixed citation style blocked: action=insert target_style=%s document_styles=%s reason=%s",
+        target_style,
+        conflict["styles"],
+        conflict["reason"],
+    )
+
+    document_style = conflict.get("document_style")
+    if document_style:
+        msg = (
+            "Das Zitat wurde nicht eingefügt.\n\n"
+            f"In dieser Präsentation sind bereits Zitate im Stil „{code_to_label(document_style)}“ vorhanden. "
+            f"Der aktuell gewählte Stil ist „{code_to_label(target_style)}“.\n\n"
+            "Unterschiedliche Zitierstile innerhalb einer Präsentation werden nicht unterstützt.\n\n"
+            "Bitte verwende den bestehenden Stil oder stelle die Präsentation über den Zitierstil-Wechsel vollständig auf den neuen Stil um."
+        )
+    else:
+        msg = (
+            "Das Zitat wurde nicht eingefügt.\n\n"
+            "In dieser Präsentation sind bereits Zitate mit mehreren oder nicht eindeutig erkennbaren Zitierstilen vorhanden.\n\n"
+            "Unterschiedliche Zitierstile innerhalb einer Präsentation werden nicht unterstützt.\n\n"
+            "Bitte stelle die Präsentation über den Zitierstil-Wechsel vollständig auf einen einheitlichen Stil um."
+        )
+
+    _show_message(parent, "warning", "Zitierstil-Konflikt", msg)
+    return True
+
+
 def normalize_mla_duplicate_labels():
     """
     MLA:
@@ -2192,6 +2338,20 @@ def insert_ieee_placeholder(key, *, parent=None) -> bool:
     Runs asynchronously in a worker so the UI does not block.
     """
     def _work():
+        state = load_doc_state()
+        style_local = state.get("style", DEFAULT_STYLE) or DEFAULT_STYLE
+        if block_mixed_style_insert_or_show_message(parent, "ieee", fallback_style=style_local):
+            if parent is not None:
+                parent.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Zotero PowerPoint",
+                        "Abgebrochen: anderer Zitierstil im Dokument erkannt.",
+                        parent=parent,
+                    ),
+                )
+            return
+
         placeholder = f"⟦zp:{key}⟧"
         shp = ppt_insert_text_at_cursor(f" {placeholder}")
 
@@ -2221,11 +2381,10 @@ def insert_ieee_placeholder(key, *, parent=None) -> bool:
     return True
 
 
-def renumber_ieee_and_update(*, parent=None) -> bool:
-    with com_context("renumber_ieee_and_update"):
+def renumber_ieee_document_citations():
+    """Renumber IEEE citations in visible text and ZP_CITES without writing bibliography."""
+    with com_context("renumber_ieee_document_citations"):
         state = load_doc_state()
-        style = state.get("style") or DEFAULT_STYLE
-
         numbering = build_ieee_numbering_from_document()
 
         for _scope, _slide, shp in iter_citation_shapes():
@@ -2289,6 +2448,12 @@ def renumber_ieee_and_update(*, parent=None) -> bool:
 
         state["bib_keys"] = list(numbering.keys())
         save_doc_state(state)
+        return numbering
+
+
+def renumber_ieee_and_update(*, parent=None) -> bool:
+    numbering = renumber_ieee_document_citations()
+    style = "ieee"
 
     if not has_bibliography_anchor():
         return True
@@ -2340,6 +2505,14 @@ def run_document_update_workflow(parent=None) -> str:
     state = load_doc_state()
     style = _get_action_style(state)
     bibliography_already_updated = False
+
+    styles = collect_document_citation_styles(fallback_style=style)
+    if UNKNOWN_STYLE in styles or len([s for s in styles if s != UNKNOWN_STYLE]) > 1:
+        LOG.warning(
+            "Mixed citation style detected during document update: action=update-document state_style=%s document_styles=%s",
+            style,
+            styles,
+        )
 
     new_keys = resync_bibliography_keys_from_document(state)
     _debug(f"DocumentUpdate: keys_after_prune={len(new_keys)} style={style}")
@@ -2396,6 +2569,13 @@ def run_rewrite_bibliography_workflow(parent=None) -> str:
 
     state = load_doc_state()
     style = _get_action_style(state)
+    styles = collect_document_citation_styles(fallback_style=style)
+    if UNKNOWN_STYLE in styles or len([s for s in styles if s != UNKNOWN_STYLE]) > 1:
+        LOG.warning(
+            "Mixed citation style detected during bibliography rewrite: action=rewrite-bibliography state_style=%s document_styles=%s",
+            style,
+            styles,
+        )
     state["bib_keys"] = resync_bibliography_keys_from_document(state)
     keys = state.get("bib_keys", [])
 
@@ -2583,6 +2763,238 @@ def code_to_label(code):
 
 def label_to_code(label):
     return next((c for name, c in STYLE_CHOICES if name == label), DEFAULT_STYLE)
+
+
+
+
+def fetch_zotero_item_by_key(key, cfg):
+    """Fetch one Zotero item by key using the existing retry-aware HTTP helper."""
+    base = f"https://api.zotero.org/{cfg.library_type}s/{cfg.library_id}"
+    try:
+        r = _safe_get(
+            f"{base}/items/{key}",
+            headers={
+                "Zotero-API-Key": cfg.api_key,
+                "Zotero-API-Version": "3",
+                "Accept": "application/json",
+            },
+            timeout=HTTP_TIMEOUT,
+            retries=3,
+            context=f"item-json key={key}",
+        )
+    except requests.RequestException as e:
+        raise RuntimeError(f"Zotero-Eintrag {key} konnte nicht geladen werden.") from e
+
+    try:
+        item = r.json()
+    except ValueError as e:
+        raise RuntimeError(f"Zotero-Eintrag {key} konnte nicht gelesen werden (ungültige JSON-Antwort).") from e
+
+    if not isinstance(item, dict) or not item.get("data"):
+        raise RuntimeError(f"Zotero-Eintrag {key} konnte nicht gelesen werden (unerwartete Antwort).")
+
+    return item
+
+
+def fetch_zotero_items_by_key(keys, cfg):
+    items = {}
+    for key in keys:
+        items[key] = fetch_zotero_item_by_key(key, cfg)
+    return items
+
+
+def _format_cite_record_for_style(item, target_style):
+    key = item.get("key")
+    record = {"key": key, "style": target_style}
+
+    if target_style == "ieee":
+        record["cite"] = f"⟦zp:{key}⟧"
+        return record
+
+    if target_style == "mla":
+        label, qualifier = _mla_label_parts_from_item(item)
+        record.update({
+            "cite": _format_mla_base_from_item(item),
+            "sig": _make_sig(item),
+            "mla_label": label,
+        })
+        if qualifier:
+            record["mla_qualifier"] = qualifier
+        return record
+
+    record.update({
+        "cite": _format_authoryear_base_from_item(item),
+        "sig": _make_sig(item),
+    })
+    return record
+
+
+def _collect_active_citation_occurrences():
+    occurrences = []
+    keys = []
+    for scope, slide, shp in iter_citation_shapes():
+        try:
+            arr = prune_cites_in_shape(shp)
+            for idx, c in enumerate(arr):
+                key = c.get("key")
+                cite = c.get("cite") or ""
+                if not key or not cite:
+                    continue
+                occurrences.append({
+                    "scope": scope,
+                    "slide": slide,
+                    "shape": shp,
+                    "idx": idx,
+                    "record": c,
+                })
+                if key not in keys:
+                    keys.append(key)
+        except Exception:
+            continue
+    return occurrences, keys
+
+
+def convert_document_citation_style(target_style, *, parent=None) -> str:
+    """Convert all active citation records and visible citations to target_style."""
+    if target_style not in STYLE_CODES:
+        raise RuntimeError(f"Unbekannter Zitierstil: {target_style}")
+
+    state = load_doc_state()
+    source_style = state.get("style", DEFAULT_STYLE) or DEFAULT_STYLE
+    occurrences, keys = _collect_active_citation_occurrences()
+
+    if not occurrences:
+        state["style"] = target_style
+        state["bib_keys"] = []
+        save_doc_state(state)
+        LOG.info(
+            "Document citation style conversion skipped: empty document target_style=%s",
+            target_style,
+        )
+        return f"Stil gesetzt: {code_to_label(target_style)}."
+
+    LOG.info(
+        "Document citation style conversion started: source_style=%s target_style=%s keys=%s",
+        source_style,
+        target_style,
+        len(keys),
+    )
+
+    try:
+        cfg = get_cfg(allow_prompt=False, parent=parent)
+    except RuntimeError as e:
+        raise RuntimeError(
+            "Konvertierung fehlgeschlagen: Zotero ist nicht konfiguriert. Details siehe zotero_ppt.log."
+        ) from e
+
+    items_by_key = fetch_zotero_items_by_key(keys, cfg)
+    new_records_by_key = {
+        key: _format_cite_record_for_style(items_by_key[key], target_style)
+        for key in keys
+    }
+
+    converted_shapes = 0
+    try:
+        by_shape = {}
+        for occ in occurrences:
+            slide = occ["slide"]
+            shp = occ["shape"]
+            shape_key = (occ["scope"], int(slide.SlideID), _get_shape_id(shp))
+            by_shape.setdefault(shape_key, {"shape": shp, "items": []})["items"].append(occ)
+
+        for _shape_key, pack in by_shape.items():
+            shp = pack["shape"]
+            arr = _load_shape_cites(shp)
+            tr = shp.TextFrame.TextRange
+            txt = tr.Text or ""
+            text_changed = False
+            tags_changed = False
+
+            for occ in sorted(pack["items"], key=lambda item: item["idx"]):
+                idx = occ["idx"]
+                old = occ["record"]
+                key = old.get("key")
+                old_cite = old.get("cite") or ""
+                fresh = dict(new_records_by_key[key])
+                new_cite = fresh.get("cite") or ""
+
+                txt, replaced = _replace_first(txt, old_cite, new_cite)
+                if not replaced:
+                    raise RuntimeError(
+                        f"Zitat konnte nicht ersetzt werden: key={key} cite={old_cite!r}"
+                    )
+                text_changed = True
+
+                if idx >= len(arr) or arr[idx].get("key") != key:
+                    raise RuntimeError(
+                        f"Citation-State konnte nicht eindeutig aktualisiert werden: key={key}"
+                    )
+
+                arr[idx].clear()
+                arr[idx].update(fresh)
+                if target_style != "mla":
+                    arr[idx].pop("mla_label", None)
+                    arr[idx].pop("mla_qualifier", None)
+                tags_changed = True
+
+            if text_changed:
+                tr.Text = txt
+                converted_shapes += 1
+            if text_changed or tags_changed:
+                _save_shape_cites(shp, arr)
+
+        numbering = None
+        if target_style in ("apa", "harvard1"):
+            renormalize_all_sig_groups()
+        elif target_style == "mla":
+            normalize_mla_duplicate_labels()
+        elif target_style == "ieee":
+            numbering = renumber_ieee_document_citations()
+
+        new_keys = resync_bibliography_keys_from_document(state)
+        state["style"] = target_style
+        state["bib_keys"] = new_keys if target_style != "ieee" else list((numbering or {}).keys())
+        save_doc_state(state)
+
+        if has_bibliography_anchor():
+            update_bibliography(
+                state.get("bib_keys", []),
+                target_style,
+                cfg.api_key,
+                cfg.library_id,
+                cfg.library_type,
+                numbering=numbering,
+            )
+
+        LOG.info(
+            "Document citation style conversion completed: target_style=%s keys=%s shapes=%s",
+            target_style,
+            len(keys),
+            converted_shapes,
+        )
+        return f"Präsentation wurde auf „{code_to_label(target_style)}“ umgestellt."
+
+    except Exception:
+        LOG.exception(
+            "Document citation style conversion failed: source_style=%s target_style=%s",
+            source_style,
+            target_style,
+        )
+        raise RuntimeError("Konvertierung fehlgeschlagen. Details siehe zotero_ppt.log.")
+
+
+def confirm_document_style_conversion(parent, source_style, target_style, document_styles):
+    description = _document_style_description(document_styles, source_style)
+    msg = (
+        f"In dieser Präsentation sind bereits Zitate {description} vorhanden.\n\n"
+        f"Du hast „{code_to_label(target_style)}“ ausgewählt.\n\n"
+        "Eine reine Stilumschaltung würde zu unterschiedlichen Zitierstilen innerhalb derselben Präsentation führen. "
+        "Das wird nicht unterstützt.\n\n"
+        f"Die Präsentation kann stattdessen vollständig auf „{code_to_label(target_style)}“ umgestellt werden. "
+        "Dabei werden alle gespeicherten Zitate, sichtbaren Zitierstellen und die Bibliographie neu geschrieben.\n\n"
+        f"Möchtest du die Präsentation jetzt auf „{code_to_label(target_style)}“ umstellen?"
+    )
+    return messagebox.askyesno("Zitierstil umstellen", msg, parent=parent)
 
 
 def run_in_thread(name: str, fn, *, on_error=None, ui_parent=None):
@@ -2828,13 +3240,72 @@ class PickerApp:
             self.root.destroy()
 
     def on_style_change(self, event=None):
-        self.state["style"] = label_to_code(self.style_var.get())
-        save_doc_state(self.state)
-        self.set_status(f"Stil gesetzt: {self.style_var.get()}")
-        _debug(
-            f"Style set: display_name={self.style_var.get()!r}, "
-            f"style_id={self.state['style']!r}"
-        )
+        target_style = label_to_code(self.style_var.get())
+        previous_style = self.state.get("style", DEFAULT_STYLE) or DEFAULT_STYLE
+
+        if target_style == previous_style:
+            self.set_status(f"Stil gesetzt: {code_to_label(previous_style)}")
+            return
+
+        document_styles = collect_document_citation_styles(fallback_style=previous_style)
+
+        if not document_styles:
+            self.state["style"] = target_style
+            save_doc_state(self.state)
+            self.set_status(f"Stil gesetzt: {code_to_label(target_style)}")
+            LOG.info("Style set in empty document: target_style=%s", target_style)
+            return
+
+        existing_style = get_existing_document_style(fallback_style=previous_style)
+        if existing_style == target_style:
+            self.state["style"] = target_style
+            save_doc_state(self.state)
+            self.set_status(f"Stil synchronisiert: {code_to_label(target_style)}")
+            LOG.info("Style synchronized with document citations: target_style=%s", target_style)
+            return
+
+        if not confirm_document_style_conversion(
+            self.root,
+            existing_style,
+            target_style,
+            document_styles,
+        ):
+            self.style_var.set(code_to_label(previous_style))
+            self.set_status("Stilwechsel abgebrochen.")
+            LOG.info(
+                "Document citation style conversion cancelled: source_style=%s target_style=%s document_styles=%s",
+                previous_style,
+                target_style,
+                document_styles,
+            )
+            return
+
+        self.style_var.set(code_to_label(previous_style))
+        self.set_status(f"Konvertierung auf {code_to_label(target_style)} läuft...")
+
+        def _work():
+            result = convert_document_citation_style(target_style, parent=self.root)
+
+            def _finish_ui():
+                self.state = load_doc_state()
+                self.style_var.set(code_to_label(self.state.get("style", target_style)))
+                self.set_status(result)
+
+            self.root.after(0, _finish_ui)
+
+        def _on_error(e):
+            def _finish_error():
+                self.style_var.set(code_to_label(previous_style))
+                self.set_status("Konvertierung fehlgeschlagen. Details siehe zotero_ppt.log.")
+                messagebox.showerror(
+                    "Zitierstil umstellen",
+                    str(e) or "Konvertierung fehlgeschlagen. Details siehe zotero_ppt.log.",
+                    parent=self.root,
+                )
+
+            self.root.after(0, _finish_error)
+
+        run_in_thread("StyleConversion", _work, on_error=_on_error, ui_parent=self.root)
 
     def on_key(self, event=None):
         if self.z is None:
@@ -2942,6 +3413,13 @@ class PickerApp:
             state = load_doc_state()
             style_local = state.get("style", style) or DEFAULT_STYLE
 
+            if block_mixed_style_insert_or_show_message(self.root, style_local, fallback_style=style_local):
+                self.root.after(
+                    0,
+                    lambda: self.set_status("Abgebrochen: anderer Zitierstil im Dokument erkannt."),
+                )
+                return
+
             # IEEE: placeholder + renumbering, handled entirely in the worker
             if style_local == "ieee":
                 placeholder = f"⟦zp:{key}⟧"
@@ -2976,7 +3454,7 @@ class PickerApp:
             if style_local in ("apa", "harvard1") and key in by_key:
                 cite = by_key[key].get("cite") or _format_authoryear_base_from_item(it)
                 sig = by_key[key].get("sig") or _make_sig(it)
-                record_extra = {}
+                record_extra = {"style": style_local}
 
             elif style_local == "mla":
                 sig = _make_sig(it)

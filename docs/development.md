@@ -244,7 +244,23 @@ Bibliography anchor resolution intentionally remains limited to normal slide sha
 Stored citation records contain at least:
 - `key`: Zotero item key
 - `cite`: currently visible citation text
-- optional style-specific metadata such as `sig` or `style`
+- `style`: citation style for newly written records
+- optional style-specific metadata such as `sig`, `mla_label`, or `mla_qualifier`
+
+As of `v0.1.0-alpha.25`, one presentation is treated as a single-style document.
+The document style is inferred from active `ZP_CITES` records on normal slides and
+PowerPoint notes. Explicit `style` metadata is preferred. Legacy records without
+`style` are interpreted conservatively using IEEE citation syntax, legacy MLA
+heuristics, and the previous document `state["style"]` for plausible author-year
+records. Unknown records are not silently ignored.
+
+When the user changes the selected style in a presentation with existing
+citations, the application does not simply save a new `state["style"]`. Instead,
+it asks for a controlled full-document conversion. A successful conversion updates
+visible citation text and stored `ZP_CITES` records together, runs the relevant
+style-specific normalization, rebuilds `bib_keys`, and only then stores the new
+document style. If a bibliography target exists, the bibliography is rewritten in
+the target style.
 
 For MLA records created with `v0.1.0-alpha.24` or later, additional metadata may be stored:
 
@@ -256,6 +272,8 @@ MLA duplicate-label normalization updates the visible citation text and the stor
 
 Important rules:
 - Visible citation text and stored cite metadata must be updated together.
+- New mixed citation styles must be blocked before visible text or tags are written.
+- `state["style"]` must not be changed before an explicit style conversion has succeeded.
 - Cleanup must derive bibliography keys from stored citation metadata.
 - Numeric styles such as IEEE must not rely only on visible placeholder scans.
 - IEEE numbering is built from persisted cite records sorted by visible document order.

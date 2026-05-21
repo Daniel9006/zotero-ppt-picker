@@ -13,7 +13,7 @@ Current public baseline: `v0.1.0-alpha.24`
 
 Current development focus:
 - documenting and prioritizing remaining alpha follow-ups
-- preventing unsupported mixed citation styles within one presentation
+- stabilizing document-wide citation-style consistency
 - improving remaining style-specific edge cases, especially Chicago Author-Date duplicate author/year disambiguation
 - treating locator/page support as a separate future feature block
 - keeping PowerPoint Ribbon/CLI workflows stable without adding duplicate workflow logic
@@ -721,3 +721,25 @@ instability observed during bibliography target setup and writing.
 
 **Overall result**
 - `v0.1.0-alpha.24 – MLA duplicate-label handling`: completed, tested, and release-ready.
+
+### v0.1.0-alpha.25 – Citation style guard and document conversion
+
+**Scope**
+- Prevent unsupported mixed citation styles within one presentation.
+- Add controlled full-document citation style conversion when the user changes style in a presentation with existing citations.
+- Ensure new citation records consistently store `style` metadata.
+- Keep PowerPoint Ribbon/CLI workflow functions shared and unchanged at the launcher boundary.
+
+**Behavior**
+- Empty presentations can switch style freely.
+- Insert with a different style than existing document citations is blocked with a German user-facing message.
+- Style changes with existing citations do not silently update `state["style"]`.
+- The user is offered a full conversion that updates visible citations, `ZP_CITES` records, and bibliography text when a bibliography target exists.
+- Cancelling the conversion leaves the previous style unchanged.
+
+**Not included**
+- No mixed-style override.
+- No automatic migration when opening a presentation.
+- No locator/page support.
+- No CSL/style-engine refactor.
+- No PowerPoint Ribbon or launcher architecture changes.
